@@ -1,0 +1,8 @@
+[package]
+name = "autoverse"
+version = "0.1.0"
+edition = "2021"
+authors = ["Nathan Gage <contact@nathangage.co>"]
+
+[dependencies]
+bevy = "0.11.3"
