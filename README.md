@@ -1,0 +1,2 @@
+# autoverse
+rust automata simulator
