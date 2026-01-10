@@ -129,12 +129,9 @@ Benchmarks:
 cargo bench
 ```
 
-## Future Work
+## Roadmap
 
-- [ ] WebGPU compute backend
-- [ ] Real-time visualization
-- [ ] Parameter embedding (local parameters that flow with mass)
-- [ ] Evolutionary search for interesting patterns
+See [open issues](https://github.com/nathan-gage/autoverse/issues) for planned features.
 
 ## References
 
