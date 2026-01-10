@@ -2,11 +2,11 @@
 //!
 //! Orchestrates all computation stages for each time step.
 
-use crate::schema::{SimulationConfig, Seed};
+use crate::schema::{Seed, SimulationConfig};
 
 use super::{
-    advect_mass, compute_flow_field, growth_accumulate, sobel_gradient_fast, total_mass_all_channels,
-    CachedConvolver, FrequencyKernel, Kernel,
+    CachedConvolver, FrequencyKernel, Kernel, advect_mass, compute_flow_field, growth_accumulate,
+    sobel_gradient_fast, total_mass_all_channels,
 };
 
 /// Simulation state container.
@@ -31,9 +31,7 @@ impl SimulationState {
         // Flatten to [channel][flat_grid]
         let channels: Vec<Vec<f32>> = grid_3d
             .into_iter()
-            .map(|channel_2d| {
-                channel_2d.into_iter().flatten().collect()
-            })
+            .map(|channel_2d| channel_2d.into_iter().flatten().collect())
             .collect();
 
         Self {

@@ -45,4 +45,4 @@ pub mod schema;
 
 // Re-export commonly used types
 pub use compute::{CpuPropagator, SimulationState, SimulationStats};
-pub use schema::{SimulationConfig, Seed, Pattern};
+pub use schema::{Pattern, Seed, SimulationConfig};

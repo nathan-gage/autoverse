@@ -44,7 +44,15 @@ pub fn advect_mass(
             let dest_y = y as f32 + dt * flow_y[idx];
 
             // Distribute mass to destination using square kernel
-            distribute_mass(&mut next, mass, dest_x, dest_y, width, height, distribution_size);
+            distribute_mass(
+                &mut next,
+                mass,
+                dest_x,
+                dest_y,
+                width,
+                height,
+                distribution_size,
+            );
         }
     }
 
@@ -149,7 +157,17 @@ pub fn advect_mass_multichannel(
 ) -> Vec<Vec<f32>> {
     channels
         .iter()
-        .map(|channel| advect_mass(channel, flow_x, flow_y, width, height, dt, distribution_size))
+        .map(|channel| {
+            advect_mass(
+                channel,
+                flow_x,
+                flow_y,
+                width,
+                height,
+                dt,
+                distribution_size,
+            )
+        })
         .collect()
 }
 
@@ -165,7 +183,9 @@ pub fn advect_mass_multichannel_per_flow(
     channels
         .iter()
         .zip(flows.iter())
-        .map(|(channel, (fx, fy))| advect_mass(channel, fx, fy, width, height, dt, distribution_size))
+        .map(|(channel, (fx, fy))| {
+            advect_mass(channel, fx, fy, width, height, dt, distribution_size)
+        })
         .collect()
 }
 

@@ -135,7 +135,12 @@ mod tests {
         for y in 1..height - 1 {
             for x in 1..width - 1 {
                 let idx = y * width + x;
-                assert!(gx[idx] > 0.0, "Expected positive X gradient at ({}, {})", x, y);
+                assert!(
+                    gx[idx] > 0.0,
+                    "Expected positive X gradient at ({}, {})",
+                    x,
+                    y
+                );
             }
         }
     }
@@ -227,7 +232,12 @@ mod tests {
         for y in 1..height - 1 {
             for x in 0..width {
                 let idx = y * width + x;
-                assert!(gy[idx] > 0.0, "Expected positive Y gradient at ({}, {})", x, y);
+                assert!(
+                    gy[idx] > 0.0,
+                    "Expected positive Y gradient at ({}, {})",
+                    x,
+                    y
+                );
             }
         }
     }

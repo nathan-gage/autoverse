@@ -110,7 +110,9 @@ impl Seed {
                 channel,
                 seed,
             } => {
-                apply_noise(&mut grid, *channel, *amplitude, *seed, width, height, channels);
+                apply_noise(
+                    &mut grid, *channel, *amplitude, *seed, width, height, channels,
+                );
             }
             Pattern::Ring {
                 center,

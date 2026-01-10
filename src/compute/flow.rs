@@ -46,7 +46,7 @@ pub fn compute_flow_field(
 /// Compute flow field per channel (when channels have separate affinities).
 pub fn compute_flow_field_per_channel(
     affinity_grads: &[(Vec<f32>, Vec<f32>)], // Per-channel (grad_x, grad_y)
-    grad_a_x: &[f32],                         // Total mass gradient
+    grad_a_x: &[f32],                        // Total mass gradient
     grad_a_y: &[f32],
     mass_sum: &[f32],
     config: &FlowConfig,
@@ -123,7 +123,10 @@ mod tests {
         assert_eq!(compute_alpha(config.beta_a, config.beta_a, config.n), 1.0);
 
         // Mass above beta_a -> alpha clamped to 1
-        assert_eq!(compute_alpha(config.beta_a * 2.0, config.beta_a, config.n), 1.0);
+        assert_eq!(
+            compute_alpha(config.beta_a * 2.0, config.beta_a, config.n),
+            1.0
+        );
     }
 
     #[test]
@@ -136,7 +139,9 @@ mod tests {
         let mass_sum = vec![0.0, 0.0, 0.0];
         let config = FlowConfig::default();
 
-        let (fx, fy) = compute_flow_field(&grad_u_x, &grad_u_y, &grad_a_x, &grad_a_y, &mass_sum, &config);
+        let (fx, fy) = compute_flow_field(
+            &grad_u_x, &grad_u_y, &grad_a_x, &grad_a_y, &mass_sum, &config,
+        );
 
         // Should equal grad_U since alpha = 0
         for i in 0..3 {
@@ -155,7 +160,9 @@ mod tests {
         let config = FlowConfig::default();
         let mass_sum = vec![config.beta_a * 10.0; 3]; // Very high mass
 
-        let (fx, fy) = compute_flow_field(&grad_u_x, &grad_u_y, &grad_a_x, &grad_a_y, &mass_sum, &config);
+        let (fx, fy) = compute_flow_field(
+            &grad_u_x, &grad_u_y, &grad_a_x, &grad_a_y, &mass_sum, &config,
+        );
 
         // Should equal -grad_A since alpha = 1
         for i in 0..3 {
@@ -179,10 +186,30 @@ mod tests {
         let alpha_three_quarter = compute_alpha(0.75 * config.beta_a, config.beta_a, config.n);
         let alpha_full = compute_alpha(config.beta_a, config.beta_a, config.n);
 
-        assert!(alpha_0 < alpha_quarter, "alpha should increase: {} < {}", alpha_0, alpha_quarter);
-        assert!(alpha_quarter < alpha_half, "alpha should increase: {} < {}", alpha_quarter, alpha_half);
-        assert!(alpha_half < alpha_three_quarter, "alpha should increase: {} < {}", alpha_half, alpha_three_quarter);
-        assert!(alpha_three_quarter < alpha_full, "alpha should increase: {} < {}", alpha_three_quarter, alpha_full);
+        assert!(
+            alpha_0 < alpha_quarter,
+            "alpha should increase: {} < {}",
+            alpha_0,
+            alpha_quarter
+        );
+        assert!(
+            alpha_quarter < alpha_half,
+            "alpha should increase: {} < {}",
+            alpha_quarter,
+            alpha_half
+        );
+        assert!(
+            alpha_half < alpha_three_quarter,
+            "alpha should increase: {} < {}",
+            alpha_half,
+            alpha_three_quarter
+        );
+        assert!(
+            alpha_three_quarter < alpha_full,
+            "alpha should increase: {} < {}",
+            alpha_three_quarter,
+            alpha_full
+        );
 
         // With n=2, alpha at half beta_a should be 0.25
         assert!(
@@ -204,15 +231,24 @@ mod tests {
 
         // n=1: linear transition
         let alpha_n1 = compute_alpha(mass, beta_a, 1.0);
-        assert!((alpha_n1 - 0.5).abs() < 1e-6, "n=1 should give linear alpha");
+        assert!(
+            (alpha_n1 - 0.5).abs() < 1e-6,
+            "n=1 should give linear alpha"
+        );
 
         // n=2: quadratic (slower initial transition)
         let alpha_n2 = compute_alpha(mass, beta_a, 2.0);
-        assert!((alpha_n2 - 0.25).abs() < 1e-6, "n=2 should give quadratic alpha");
+        assert!(
+            (alpha_n2 - 0.25).abs() < 1e-6,
+            "n=2 should give quadratic alpha"
+        );
 
         // Higher n means slower transition at low mass
         let alpha_n4 = compute_alpha(mass, beta_a, 4.0);
-        assert!(alpha_n4 < alpha_n2, "higher n should give slower transition");
+        assert!(
+            alpha_n4 < alpha_n2,
+            "higher n should give slower transition"
+        );
     }
 
     #[test]
@@ -280,8 +316,14 @@ mod tests {
 
         let stats = FlowStats::compute(&flow_x, &flow_y, &mass_sum, &config);
 
-        assert!((stats.mean_magnitude - 5.0).abs() < 1e-5, "Mean magnitude should be 5.0");
-        assert!((stats.max_magnitude - 5.0).abs() < 1e-5, "Max magnitude should be 5.0");
+        assert!(
+            (stats.mean_magnitude - 5.0).abs() < 1e-5,
+            "Mean magnitude should be 5.0"
+        );
+        assert!(
+            (stats.max_magnitude - 5.0).abs() < 1e-5,
+            "Max magnitude should be 5.0"
+        );
 
         // Alpha values: 0, 0.25, 1.0 -> mean = 0.4167
         let expected_mean_alpha = (0.0 + 0.25 + 1.0) / 3.0;

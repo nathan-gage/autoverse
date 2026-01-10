@@ -208,7 +208,13 @@ impl CachedConvolver {
                 let mut conv = FftConvolver::new(self.width, self.height);
                 let result = conv.ifft2d(&mut result_freq);
 
-                (kernel.target_channel, kernel.weight, kernel.mu, kernel.sigma, result)
+                (
+                    kernel.target_channel,
+                    kernel.weight,
+                    kernel.mu,
+                    kernel.sigma,
+                    result,
+                )
             })
             .collect()
     }
@@ -233,12 +239,7 @@ mod tests {
         let recovered = convolver.ifft2d(&mut freq_copy);
 
         for (orig, rec) in input.iter().zip(recovered.iter()) {
-            assert!(
-                (orig - rec).abs() < 1e-4,
-                "Mismatch: {} vs {}",
-                orig,
-                rec
-            );
+            assert!((orig - rec).abs() < 1e-4, "Mismatch: {} vs {}", orig, rec);
         }
     }
 
@@ -250,7 +251,13 @@ mod tests {
 
         // Create test input
         let input: Vec<f32> = (0..width * height)
-            .map(|i| if i == width * height / 2 + width / 2 { 1.0 } else { 0.0 })
+            .map(|i| {
+                if i == width * height / 2 + width / 2 {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
             .collect();
 
         // Delta kernel (identity)
@@ -261,12 +268,7 @@ mod tests {
 
         // Result should equal input
         for (inp, res) in input.iter().zip(result.iter()) {
-            assert!(
-                (inp - res).abs() < 1e-4,
-                "Mismatch: {} vs {}",
-                inp,
-                res
-            );
+            assert!((inp - res).abs() < 1e-4, "Mismatch: {} vs {}", inp, res);
         }
     }
 
@@ -396,9 +398,7 @@ mod tests {
         for &(width, height) in &[(8, 8), (16, 16), (32, 32), (16, 32), (32, 16)] {
             let mut convolver = FftConvolver::new(width, height);
 
-            let input: Vec<f32> = (0..width * height)
-                .map(|i| (i % 10) as f32)
-                .collect();
+            let input: Vec<f32> = (0..width * height).map(|i| (i % 10) as f32).collect();
 
             let freq = convolver.fft2d(&input);
             let mut freq_copy = freq.clone();
