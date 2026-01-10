@@ -1,18 +1,55 @@
 [package]
-name = "autoverse"
+name = "flow-lenia"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Nathan Gage <contact@nathangage.co>"]
+description = "Flow Lenia - Mass conservative continuous cellular automata"
+license = "MIT"
+rust-version = "1.85"
+
+[lib]
+name = "flow_lenia"
+path = "src/lib.rs"
+
+[[bin]]
+name = "flow-lenia"
+path = "src/main.rs"
 
 [dependencies]
-bevy = { version = "0.11.3", features = ["dynamic_linking"] }
-bevy_pancam = "0.9.0"
-noisy_bevy = "0.4.0"
+# FFT for fast convolution
+rustfft = "6.2"
 
-# Enable a small amount of optimization in debug mode
+# Serialization for config/state
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Parallel computation
+rayon = "1.10"
+
+# Math utilities
+num-complex = "0.4"
+
+# Error handling
+thiserror = "2.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+
 [profile.dev]
 opt-level = 1
 
-# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
 [profile.dev.package."*"]
 opt-level = 3
+
+[[bench]]
+name = "propagator"
+harness = false
