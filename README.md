@@ -108,14 +108,21 @@ propagator.run(&mut state, 100);
 println!("Total mass: {}", state.total_mass());
 ```
 
+## Compute Pipeline
+
+Each time step executes:
+
+1. **Convolution**: FFT-based kernel application to state channels
+2. **Growth**: Gaussian growth function G(u; mu, sigma) → [-1, 1]
+3. **Gradient**: Sobel filters compute spatial gradients of affinity and mass
+4. **Flow**: Combine gradients with alpha weighting based on local density
+5. **Reintegration**: Mass-conservative advection via square kernel distribution
+
+All operations use periodic (torus) boundaries. Mass is strictly conserved.
+
 ## Mathematical Background
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete mathematical formulation including:
-
-- Kernel functions (Gaussian rings)
-- Growth function
-- Flow field computation
-- Reintegration tracking for mass conservation
+See [docs/math.md](docs/math.md) for the complete mathematical formulation.
 
 ## Performance
 
