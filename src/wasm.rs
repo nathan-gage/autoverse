@@ -3,7 +3,7 @@
 //! Provides a thin wrapper around `CpuPropagator` for browser environments.
 
 use wasm_bindgen::prelude::*;
-use serde::{Serialize, Deserialize};
+use serde::Serialize;
 
 use crate::{
     compute::{CpuPropagator, SimulationState, SimulationStats},
@@ -131,7 +131,7 @@ impl WasmPropagator {
 }
 
 /// Serializable snapshot of simulation state.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct StateSnapshot<'a> {
     channels: &'a Vec<Vec<f32>>,
     width: usize,
