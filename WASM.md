@@ -95,12 +95,11 @@ const config = {
 
 const seed = {
   pattern: {
-    GaussianBlob: {
-      center: [0.5, 0.5],
-      radius: 0.1,
-      amplitude: 1.0,
-      channel: 0
-    }
+    type: "GaussianBlob",
+    center: [0.5, 0.5],
+    radius: 0.1,
+    amplitude: 1.0,
+    channel: 0
   }
 };
 
@@ -140,13 +139,12 @@ const step = propagator.getStep();
 ```javascript
 const newSeed = {
   pattern: {
-    Ring: {
-      center: [0.5, 0.5],
-      radius: 0.2,
-      width: 0.05,
-      amplitude: 1.0,
-      channel: 0
-    }
+    type: "Ring",
+    center: [0.5, 0.5],
+    inner_radius: 0.15,
+    outer_radius: 0.2,
+    amplitude: 1.0,
+    channel: 0
   }
 };
 
