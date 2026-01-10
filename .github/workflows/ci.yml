@@ -8,6 +8,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Reduce noise in CI logs
+  CARGO_INCREMENTAL: 0
+  # Use sccache for faster builds
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: true
 
 jobs:
   test:
@@ -20,19 +25,21 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          # Share cache across jobs with a shared key prefix
+          shared-key: "rust-cache"
+          # Cache the target directory
+          cache-targets: true
+          # Only save cache on main branch pushes to avoid cache bloat
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --profile ci --verbose
 
   clippy:
     name: Clippy
@@ -46,21 +53,20 @@ jobs:
         with:
           components: clippy
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          shared-key: "rust-cache"
+          cache-targets: true
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
       - name: Run clippy
         # Note: Using -W warnings to warn instead of -D to error
         # Some pre-existing code has clippy warnings that should be addressed separately
-        run: cargo clippy -- -W clippy::all
+        run: cargo clippy --profile ci -- -W clippy::all
 
   fmt:
     name: Format
