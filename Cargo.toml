@@ -54,15 +54,10 @@ opt-level = 3
 name = "propagator"
 harness = false
 
-# CI profile: optimized for fast compilation in CI environments
-# Uses minimal debug info and lower optimization for faster builds
 [profile.ci]
 inherits = "dev"
-# Line tables only - enough for panic backtraces but much smaller
 debug = "line-tables-only"
-# Split debug info for faster linking (when not stripped)
 split-debuginfo = "unpacked"
 
-# Dependencies in CI profile: no debug info at all
 [profile.ci.package."*"]
 debug = false

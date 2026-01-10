@@ -1,21 +1,5 @@
-# Cargo configuration for build optimizations
-# See: https://doc.rust-lang.org/cargo/reference/config.html
-
 [build]
-# Use all available CPUs for parallel compilation
 jobs = -1
 
 [net]
-# Use git CLI for fetching instead of libgit2 (often faster)
 git-fetch-with-cli = true
-
-# Linux-specific optimizations
-[target.'cfg(target_os = "linux")']
-# Use mold linker if available (much faster than default ld)
-# Uncomment if mold is installed:
-# linker = "clang"
-# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
-
-# Alternatively, use lld which is more commonly available
-# Uncomment if lld is installed:
-# rustflags = ["-C", "link-arg=-fuse-ld=lld"]

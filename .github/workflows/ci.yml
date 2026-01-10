@@ -8,9 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Reduce noise in CI logs
   CARGO_INCREMENTAL: 0
-  # Use sccache for faster builds
   RUSTC_WRAPPER: sccache
   SCCACHE_GHA_ENABLED: true
 
@@ -31,11 +29,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          # Share cache across jobs with a shared key prefix
           shared-key: "rust-cache"
-          # Cache the target directory
-          cache-targets: true
-          # Only save cache on main branch pushes to avoid cache bloat
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
       - name: Run tests
@@ -60,12 +54,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: "rust-cache"
-          cache-targets: true
           save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
       - name: Run clippy
-        # Note: Using -W warnings to warn instead of -D to error
-        # Some pre-existing code has clippy warnings that should be addressed separately
         run: cargo clippy --profile ci -- -W clippy::all
 
   fmt:
