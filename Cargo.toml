@@ -54,7 +54,7 @@ opt-level = 3
 name = "propagator"
 harness = false
 
-# Fast compilation for CI (minimal debug info)
+# Used via --profile ci in GitHub Actions
 [profile.ci]
 inherits = "dev"
 debug = "line-tables-only"
