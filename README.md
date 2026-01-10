@@ -16,6 +16,7 @@ Flow Lenia extends the original Lenia system with mass conservation through flow
 src/
 ├── lib.rs              # Library root
 ├── main.rs             # CLI entry point
+├── wasm.rs             # WebAssembly bindings (wasm32 only)
 ├── schema/             # Configuration & seeding
 │   ├── config.rs       # Simulation parameters
 │   └── seed.rs         # Initial state patterns
@@ -29,7 +30,11 @@ src/
     └── propagator.rs   # Main simulation driver
 ```
 
+The codebase supports both **native** and **WebAssembly** targets through compile-time feature selection. The core compute pipeline is platform-independent, with conditional compilation for platform-specific dependencies (rayon for native, wasm-bindgen for web).
+
 ## Quick Start
+
+### Native Build
 
 ```bash
 # Build
@@ -41,6 +46,23 @@ cargo run --release -- examples/glider.json 100
 # Generate example config
 cargo run --release -- --example
 ```
+
+### WebAssembly Build
+
+```bash
+# Install wasm-pack
+cargo install wasm-pack
+
+# Build for web
+wasm-pack build --target web --release
+
+# Run web demo
+cd examples/web
+python3 -m http.server 8000
+# Open http://localhost:8000
+```
+
+See [WASM.md](WASM.md) for detailed WebAssembly documentation.
 
 ## Configuration
 

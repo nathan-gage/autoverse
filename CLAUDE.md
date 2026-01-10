@@ -8,6 +8,7 @@ Always consult the `@issue-tracker` agent before beginning any task. This ensure
 
 ## Build Commands
 
+### Native Builds
 ```bash
 cargo build              # Debug build
 cargo build --release    # Release build (with LTO)
@@ -16,6 +17,26 @@ cargo test <test_name>   # Run specific test
 cargo bench              # Run benchmarks
 cargo run --release -- examples/glider.json 100  # Run simulation
 ```
+
+### WebAssembly Builds
+```bash
+# Prerequisites: Install wasm32 target
+rustup target add wasm32-unknown-unknown
+
+# Build WASM library (manual approach)
+cargo build --target wasm32-unknown-unknown --release
+
+# Build WASM with wasm-pack (recommended for web integration)
+wasm-pack build --target web --release
+
+# Build with bundler target (for webpack/rollup)
+wasm-pack build --target bundler --release
+
+# Build with Node.js target
+wasm-pack build --target nodejs --release
+```
+
+See [WASM.md](./WASM.md) for detailed WASM build and deployment instructions.
 
 ## Architecture
 

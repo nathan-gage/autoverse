@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow Lenia - WebAssembly Demo</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #4fc3f7;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #2196f3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #1976d2;
+        }
+
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat {
+            background: #2a2a2a;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 3px solid #4fc3f7;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #4fc3f7;
+            margin-top: 5px;
+        }
+
+        canvas {
+            display: block;
+            margin: 20px auto;
+            border: 2px solid #333;
+            border-radius: 8px;
+            background: #000;
+        }
+
+        .error {
+            background: #d32f2f;
+            color: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Flow Lenia - WebAssembly Demo</h1>
+
+        <div id="loading" class="loading">Loading WebAssembly module...</div>
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="app" style="display: none;">
+            <div class="controls">
+                <button id="playBtn">Play</button>
+                <button id="pauseBtn">Pause</button>
+                <button id="stepBtn">Step</button>
+                <button id="resetBtn">Reset</button>
+                <button id="speedUpBtn">Speed Up</button>
+                <button id="slowDownBtn">Slow Down</button>
+            </div>
+
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-label">Step</div>
+                    <div class="stat-value" id="stepCount">0</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Time</div>
+                    <div class="stat-value" id="simTime">0.00</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Total Mass</div>
+                    <div class="stat-value" id="totalMass">0.00</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">FPS</div>
+                    <div class="stat-value" id="fps">0</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Steps/Frame</div>
+                    <div class="stat-value" id="stepsPerFrame">1</div>
+                </div>
+            </div>
+
+            <canvas id="canvas" width="512" height="512"></canvas>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { WasmPropagator } from '../../pkg/flow_lenia.js';
+
+        let propagator = null;
+        let isPlaying = false;
+        let animationFrameId = null;
+        let stepsPerFrame = 1;
+        let lastFrameTime = 0;
+        let frameCount = 0;
+        let fpsUpdateTime = 0;
+
+        // Configuration
+        const config = {
+            width: 128,
+            height: 128,
+            channels: 1,
+            dt: 0.1,
+            kernel_radius: 13,
+            kernels: [
+                {
+                    radius: 1.0,
+                    rings: [
+                        { amplitude: 1.0, distance: 0.5, width: 0.15 }
+                    ],
+                    weight: 1.0,
+                    mu: 0.15,
+                    sigma: 0.015,
+                    source_channel: 0,
+                    target_channel: 0
+                }
+            ],
+            flow: {
+                beta_a: 1.0,
+                n: 2.0,
+                distribution_size: 1.0
+            }
+        };
+
+        const seed = {
+            pattern: {
+                GaussianBlob: {
+                    center: [0.5, 0.5],
+                    radius: 0.1,
+                    amplitude: 1.0,
+                    channel: 0
+                }
+            }
+        };
+
+        // UI elements
+        const loading = document.getElementById('loading');
+        const errorDiv = document.getElementById('error');
+        const app = document.getElementById('app');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        const playBtn = document.getElementById('playBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const stepBtn = document.getElementById('stepBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const speedUpBtn = document.getElementById('speedUpBtn');
+        const slowDownBtn = document.getElementById('slowDownBtn');
+
+        const stepCount = document.getElementById('stepCount');
+        const simTime = document.getElementById('simTime');
+        const totalMass = document.getElementById('totalMass');
+        const fpsDisplay = document.getElementById('fps');
+        const stepsPerFrameDisplay = document.getElementById('stepsPerFrame');
+
+        // Initialize
+        async function start() {
+            try {
+                await init();
+                propagator = new WasmPropagator(
+                    JSON.stringify(config),
+                    JSON.stringify(seed)
+                );
+
+                loading.style.display = 'none';
+                app.style.display = 'block';
+
+                updateStats();
+                render();
+            } catch (e) {
+                showError(e);
+            }
+        }
+
+        function showError(e) {
+            loading.style.display = 'none';
+            errorDiv.textContent = `Error: ${e.message || e}`;
+            errorDiv.style.display = 'block';
+            console.error(e);
+        }
+
+        function updateStats() {
+            stepCount.textContent = propagator.getStep();
+            simTime.textContent = propagator.getTime().toFixed(2);
+            totalMass.textContent = propagator.totalMass().toFixed(2);
+            stepsPerFrameDisplay.textContent = stepsPerFrame;
+        }
+
+        function render() {
+            const state = propagator.getState();
+            const width = state.width;
+            const height = state.height;
+            const data = state.channels[0];
+
+            const imageData = ctx.createImageData(width, height);
+
+            for (let i = 0; i < data.length; i++) {
+                const value = Math.max(0, Math.min(1, data[i]));
+                const gray = Math.floor(value * 255);
+
+                imageData.data[i * 4 + 0] = gray;
+                imageData.data[i * 4 + 1] = gray;
+                imageData.data[i * 4 + 2] = gray;
+                imageData.data[i * 4 + 3] = 255;
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+            ctx.drawImage(canvas, 0, 0, width, height, 0, 0, canvas.width, canvas.height);
+        }
+
+        function animate(currentTime) {
+            if (!isPlaying) return;
+
+            propagator.run(stepsPerFrame);
+            updateStats();
+            render();
+
+            // FPS calculation
+            frameCount++;
+            if (currentTime - fpsUpdateTime >= 1000) {
+                fpsDisplay.textContent = frameCount;
+                frameCount = 0;
+                fpsUpdateTime = currentTime;
+            }
+
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        function play() {
+            if (!isPlaying) {
+                isPlaying = true;
+                fpsUpdateTime = performance.now();
+                frameCount = 0;
+                animate(fpsUpdateTime);
+                playBtn.disabled = true;
+                pauseBtn.disabled = false;
+            }
+        }
+
+        function pause() {
+            isPlaying = false;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            playBtn.disabled = false;
+            pauseBtn.disabled = true;
+        }
+
+        function step() {
+            propagator.step();
+            updateStats();
+            render();
+        }
+
+        function reset() {
+            propagator.reset(JSON.stringify(seed));
+            updateStats();
+            render();
+        }
+
+        function speedUp() {
+            stepsPerFrame = Math.min(stepsPerFrame * 2, 64);
+            updateStats();
+        }
+
+        function slowDown() {
+            stepsPerFrame = Math.max(Math.floor(stepsPerFrame / 2), 1);
+            updateStats();
+        }
+
+        // Event listeners
+        playBtn.addEventListener('click', play);
+        pauseBtn.addEventListener('click', pause);
+        stepBtn.addEventListener('click', step);
+        resetBtn.addEventListener('click', reset);
+        speedUpBtn.addEventListener('click', speedUp);
+        slowDownBtn.addEventListener('click', slowDown);
+
+        // Start application
+        start();
+    </script>
+</body>
+</html>

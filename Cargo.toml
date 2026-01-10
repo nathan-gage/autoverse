@@ -10,21 +10,24 @@ rust-version = "1.85"
 [lib]
 name = "flow_lenia"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "flow-lenia"
 path = "src/main.rs"
 
+[features]
+default = ["native"]
+native = []  # Marks native build
+wasm = []    # Marks WASM build
+
 [dependencies]
-# FFT for fast convolution
+# FFT for fast convolution (WASM-compatible)
 rustfft = "6.2"
 
 # Serialization for config/state
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-
-# Parallel computation
-rayon = "1.10"
 
 # Math utilities
 num-complex = "0.4"
@@ -34,7 +37,22 @@ thiserror = "2.0"
 
 # Logging
 log = "0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Native-only: Parallel computation
+rayon = "1.10"
+
+# Native-only: Logging backend
 env_logger = "0.11"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# WASM-specific: JavaScript bindings
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+
+# WASM-specific: Logging to console
+console_error_panic_hook = "0.1"
+wasm-logger = "0.2"
 
 [dev-dependencies]
 criterion = "0.5"
