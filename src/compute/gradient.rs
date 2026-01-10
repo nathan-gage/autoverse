@@ -168,4 +168,151 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_gradient_magnitude() {
+        let width = 8;
+        let height = 8;
+
+        // Create a simple pattern with known gradients
+        // Diagonal gradient: both x and y components should be equal
+        let mut grid = vec![0.0f32; width * height];
+        for y in 0..height {
+            for x in 0..width {
+                // Smooth periodic function to avoid edge discontinuities
+                let fx = (2.0 * std::f32::consts::PI * x as f32 / width as f32).sin();
+                let fy = (2.0 * std::f32::consts::PI * y as f32 / height as f32).sin();
+                grid[y * width + x] = fx + fy;
+            }
+        }
+
+        let (gx, gy) = sobel_gradient(&grid, width, height);
+        let mag = gradient_magnitude(&gx, &gy);
+
+        // Verify magnitude is computed correctly for all cells
+        for i in 0..width * height {
+            let expected = (gx[i] * gx[i] + gy[i] * gy[i]).sqrt();
+            assert!(
+                (mag[i] - expected).abs() < 1e-6,
+                "Magnitude mismatch at {}: {} vs {}",
+                i,
+                mag[i],
+                expected
+            );
+        }
+
+        // Magnitude should be non-negative everywhere
+        for &m in &mag {
+            assert!(m >= 0.0, "Magnitude should be non-negative");
+        }
+    }
+
+    #[test]
+    fn test_gradient_vertical_ramp() {
+        // Vertical ramp should have positive Y gradient
+        let width = 16;
+        let height = 16;
+        let mut grid = vec![0.0f32; width * height];
+
+        for y in 0..height {
+            for x in 0..width {
+                grid[y * width + x] = y as f32;
+            }
+        }
+
+        let (_gx, gy) = sobel_gradient(&grid, width, height);
+
+        // Interior points should have positive Y gradient
+        // (edges have discontinuity due to periodic boundary with ramp)
+        for y in 1..height - 1 {
+            for x in 0..width {
+                let idx = y * width + x;
+                assert!(gy[idx] > 0.0, "Expected positive Y gradient at ({}, {})", x, y);
+            }
+        }
+    }
+
+    #[test]
+    fn test_gradient_periodic_smooth() {
+        // Test with a smooth periodic function where ALL cells should have consistent gradient
+        let width = 16;
+        let height = 16;
+        let mut grid = vec![0.0f32; width * height];
+
+        // Use sin function - smooth and periodic
+        for y in 0..height {
+            for x in 0..width {
+                let phase = 2.0 * std::f32::consts::PI * x as f32 / width as f32;
+                grid[y * width + x] = phase.sin();
+            }
+        }
+
+        let (gx, gy) = sobel_gradient(&grid, width, height);
+
+        // Y gradient should be zero everywhere (function only varies in x)
+        for i in 0..width * height {
+            assert!(
+                gy[i].abs() < 1e-5,
+                "Y gradient should be ~0 for x-only variation, got {} at index {}",
+                gy[i],
+                i
+            );
+        }
+
+        // X gradient should follow cosine pattern (derivative of sin)
+        // and be consistent across the grid INCLUDING edges
+        for y in 0..height {
+            for x in 0..width {
+                let idx = y * width + x;
+                // Check that gradient exists and has correct sign
+                let phase = 2.0 * std::f32::consts::PI * x as f32 / width as f32;
+                let expected_sign = phase.cos(); // derivative of sin
+                if expected_sign.abs() > 0.3 {
+                    // Only check where gradient is significant
+                    assert!(
+                        gx[idx] * expected_sign > 0.0,
+                        "X gradient sign mismatch at ({}, {}): got {}, expected sign of {}",
+                        x,
+                        y,
+                        gx[idx],
+                        expected_sign
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_gradient_diagonal() {
+        // Diagonal pattern: both gradients should be similar in magnitude
+        let width = 16;
+        let height = 16;
+        let mut grid = vec![0.0f32; width * height];
+
+        // Smooth diagonal periodic pattern
+        for y in 0..height {
+            for x in 0..width {
+                let phase_x = 2.0 * std::f32::consts::PI * x as f32 / width as f32;
+                let phase_y = 2.0 * std::f32::consts::PI * y as f32 / height as f32;
+                grid[y * width + x] = (phase_x + phase_y).sin();
+            }
+        }
+
+        let (gx, gy) = sobel_gradient(&grid, width, height);
+
+        // For a symmetric diagonal pattern, gx and gy should have similar magnitudes
+        let mut total_gx_mag = 0.0f32;
+        let mut total_gy_mag = 0.0f32;
+        for i in 0..width * height {
+            total_gx_mag += gx[i].abs();
+            total_gy_mag += gy[i].abs();
+        }
+
+        let ratio = total_gx_mag / total_gy_mag;
+        assert!(
+            (ratio - 1.0).abs() < 0.2,
+            "Diagonal gradient should have similar x/y magnitudes, ratio: {}",
+            ratio
+        );
+    }
 }

@@ -251,4 +251,173 @@ mod tests {
         assert_eq!(wrap_coord(-10, 10), 0);
         assert_eq!(wrap_coord(15, 10), 5);
     }
+
+    #[test]
+    fn test_mass_conservation_across_boundary() {
+        // Test mass flowing across periodic boundary
+        let width = 16;
+        let height = 16;
+        let mut current = vec![0.0f32; width * height];
+
+        // Place mass at right edge
+        current[8 * width + 14] = 1.0;
+
+        let initial_mass = total_mass(&current);
+
+        // Flow that moves mass across boundary: x=14 + 5*0.5 = 16.5, wraps to 0.5
+        let flow_x = vec![5.0f32; width * height];
+        let flow_y = vec![0.0f32; width * height];
+
+        let next = advect_mass(&current, &flow_x, &flow_y, width, height, 0.5, 1.0);
+
+        let final_mass = total_mass(&next);
+
+        assert!(
+            (initial_mass - final_mass).abs() < 1e-5,
+            "Mass not conserved across boundary: {} -> {}",
+            initial_mass,
+            final_mass
+        );
+
+        // Verify mass has wrapped to left side of grid (x=0,1,2)
+        // Distribution spreads mass, so check a few cells
+        let wrapped_mass: f32 = (0..3).map(|x| next[8 * width + x]).sum();
+        assert!(
+            wrapped_mass > 0.1,
+            "Some mass should have wrapped to left side (x=0-2), but mass there = {}",
+            wrapped_mass
+        );
+
+        // Original position should have less mass than initial
+        let original_mass = next[8 * width + 14];
+        assert!(
+            original_mass < 1.0,
+            "Mass should have moved from original position, but {} remains",
+            original_mass
+        );
+    }
+
+    #[test]
+    fn test_mass_conservation_corner_wrap() {
+        // Test mass flowing diagonally across corner
+        let width = 16;
+        let height = 16;
+        let mut current = vec![0.0f32; width * height];
+
+        // Place mass at bottom-right corner
+        current[15 * width + 15] = 1.0;
+
+        let initial_mass = total_mass(&current);
+
+        // Diagonal flow toward top-left (wrapping both axes)
+        let flow_x = vec![8.0f32; width * height];
+        let flow_y = vec![8.0f32; width * height];
+
+        let next = advect_mass(&current, &flow_x, &flow_y, width, height, 0.5, 1.0);
+
+        let final_mass = total_mass(&next);
+
+        assert!(
+            (initial_mass - final_mass).abs() < 1e-5,
+            "Mass not conserved in corner wrap: {} -> {}",
+            initial_mass,
+            final_mass
+        );
+    }
+
+    #[test]
+    fn test_advect_mass_multichannel() {
+        let width = 16;
+        let height = 16;
+        let size = width * height;
+
+        // Two channels with different mass distributions
+        let mut ch0 = vec![0.0f32; size];
+        let mut ch1 = vec![0.0f32; size];
+
+        ch0[8 * width + 8] = 1.0;
+        ch1[4 * width + 4] = 2.0;
+
+        let channels = vec![ch0, ch1];
+        let initial_mass_0 = total_mass(&channels[0]);
+        let initial_mass_1 = total_mass(&channels[1]);
+
+        // Shared flow field
+        let flow_x = vec![2.0f32; size];
+        let flow_y = vec![1.0f32; size];
+
+        let result = advect_mass_multichannel(&channels, &flow_x, &flow_y, width, height, 0.2, 1.0);
+
+        assert_eq!(result.len(), 2);
+
+        let final_mass_0 = total_mass(&result[0]);
+        let final_mass_1 = total_mass(&result[1]);
+
+        assert!(
+            (initial_mass_0 - final_mass_0).abs() < 1e-5,
+            "Channel 0 mass not conserved: {} -> {}",
+            initial_mass_0,
+            final_mass_0
+        );
+        assert!(
+            (initial_mass_1 - final_mass_1).abs() < 1e-5,
+            "Channel 1 mass not conserved: {} -> {}",
+            initial_mass_1,
+            final_mass_1
+        );
+    }
+
+    #[test]
+    fn test_advect_mass_large_flow() {
+        // Test with flow velocity larger than grid size (multiple wraps)
+        let width = 16;
+        let height = 16;
+        let mut current = vec![0.0f32; width * height];
+
+        current[8 * width + 8] = 1.0;
+        let initial_mass = total_mass(&current);
+
+        // Very large flow - should still conserve mass
+        let flow_x = vec![100.0f32; width * height];
+        let flow_y = vec![50.0f32; width * height];
+
+        let next = advect_mass(&current, &flow_x, &flow_y, width, height, 0.2, 1.0);
+
+        let final_mass = total_mass(&next);
+
+        assert!(
+            (initial_mass - final_mass).abs() < 1e-5,
+            "Mass not conserved with large flow: {} -> {}",
+            initial_mass,
+            final_mass
+        );
+    }
+
+    #[test]
+    fn test_advect_mass_small_distribution() {
+        // Test with very small distribution size (point-like)
+        let width = 16;
+        let height = 16;
+        let mut current = vec![0.0f32; width * height];
+
+        current[8 * width + 8] = 1.0;
+        let initial_mass = total_mass(&current);
+
+        let flow_x = vec![1.0f32; width * height];
+        let flow_y = vec![0.0f32; width * height];
+
+        // Very small distribution size triggers point-mass fallback
+        let next = advect_mass(&current, &flow_x, &flow_y, width, height, 0.2, 0.01);
+
+        let final_mass = total_mass(&next);
+
+        // Small distribution uses point fallback which can have slightly higher
+        // floating point error, so use looser tolerance
+        assert!(
+            (initial_mass - final_mass).abs() < 1e-4,
+            "Mass not conserved with small distribution: {} -> {}",
+            initial_mass,
+            final_mass
+        );
+    }
 }

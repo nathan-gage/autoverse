@@ -332,4 +332,121 @@ mod tests {
         assert_eq!(state.channels[0].len(), config.width * config.height);
         assert!(state.total_mass() > 0.0);
     }
+
+    #[test]
+    fn test_mass_conservation_long_run() {
+        // Run many iterations to catch numerical drift
+        let config = test_config();
+        let mut propagator = CpuPropagator::new(config.clone());
+
+        let seed = Seed {
+            pattern: Pattern::GaussianBlob {
+                center: (0.5, 0.5),
+                radius: 0.15,
+                amplitude: 1.0,
+                channel: 0,
+            },
+        };
+
+        let mut state = SimulationState::from_seed(&seed, &config);
+        let initial_mass = state.total_mass();
+
+        // Run 100 steps - should catch drift issues
+        propagator.run(&mut state, 100);
+
+        let final_mass = state.total_mass();
+        let relative_error = (final_mass - initial_mass).abs() / initial_mass;
+
+        assert!(
+            relative_error < 0.001,
+            "Mass drift over 100 steps: {} -> {} ({:.4}% error)",
+            initial_mass,
+            final_mass,
+            relative_error * 100.0
+        );
+    }
+
+    #[test]
+    fn test_multichannel_mass_conservation() {
+        // Test that each channel conserves mass independently
+        let mut config = test_config();
+        config.channels = 2;
+        config.kernels = vec![
+            KernelConfig {
+                radius: 1.0,
+                rings: vec![RingConfig {
+                    amplitude: 1.0,
+                    distance: 0.5,
+                    width: 0.15,
+                }],
+                weight: 1.0,
+                mu: 0.15,
+                sigma: 0.015,
+                source_channel: 0,
+                target_channel: 0,
+            },
+            KernelConfig {
+                radius: 1.0,
+                rings: vec![RingConfig {
+                    amplitude: 1.0,
+                    distance: 0.5,
+                    width: 0.15,
+                }],
+                weight: 1.0,
+                mu: 0.15,
+                sigma: 0.015,
+                source_channel: 1,
+                target_channel: 1,
+            },
+        ];
+
+        let mut propagator = CpuPropagator::new(config.clone());
+
+        // Create state with different mass in each channel
+        let seed = Seed {
+            pattern: Pattern::MultiBlob {
+                blobs: vec![
+                    crate::schema::BlobSpec {
+                        center: (0.3, 0.5),
+                        radius: 0.1,
+                        amplitude: 1.0,
+                        channel: 0,
+                    },
+                    crate::schema::BlobSpec {
+                        center: (0.7, 0.5),
+                        radius: 0.1,
+                        amplitude: 2.0,
+                        channel: 1,
+                    },
+                ],
+            },
+        };
+
+        let mut state = SimulationState::from_seed(&seed, &config);
+        let initial_mass_ch0: f32 = state.channels[0].iter().sum();
+        let initial_mass_ch1: f32 = state.channels[1].iter().sum();
+
+        propagator.run(&mut state, 20);
+
+        let final_mass_ch0: f32 = state.channels[0].iter().sum();
+        let final_mass_ch1: f32 = state.channels[1].iter().sum();
+
+        let error_ch0 = (final_mass_ch0 - initial_mass_ch0).abs() / initial_mass_ch0;
+        let error_ch1 = (final_mass_ch1 - initial_mass_ch1).abs() / initial_mass_ch1;
+
+        assert!(
+            error_ch0 < 0.01,
+            "Channel 0 mass not conserved: {} -> {} ({:.2}% error)",
+            initial_mass_ch0,
+            final_mass_ch0,
+            error_ch0 * 100.0
+        );
+        assert!(
+            error_ch1 < 0.01,
+            "Channel 1 mass not conserved: {} -> {} ({:.2}% error)",
+            initial_mass_ch1,
+            final_mass_ch1,
+            error_ch1 * 100.0
+        );
+    }
 }
