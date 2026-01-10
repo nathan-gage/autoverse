@@ -71,3 +71,12 @@ opt-level = 3
 [[bench]]
 name = "propagator"
 harness = false
+
+# Used via --profile ci in GitHub Actions
+[profile.ci]
+inherits = "dev"
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+
+[profile.ci.package."*"]
+debug = false
