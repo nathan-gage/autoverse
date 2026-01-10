@@ -208,7 +208,13 @@ impl CachedConvolver {
                 let mut conv = FftConvolver::new(self.width, self.height);
                 let result = conv.ifft2d(&mut result_freq);
 
-                (kernel.target_channel, kernel.weight, kernel.mu, kernel.sigma, result)
+                (
+                    kernel.target_channel,
+                    kernel.weight,
+                    kernel.mu,
+                    kernel.sigma,
+                    result,
+                )
             })
             .collect()
     }
@@ -233,12 +239,7 @@ mod tests {
         let recovered = convolver.ifft2d(&mut freq_copy);
 
         for (orig, rec) in input.iter().zip(recovered.iter()) {
-            assert!(
-                (orig - rec).abs() < 1e-4,
-                "Mismatch: {} vs {}",
-                orig,
-                rec
-            );
+            assert!((orig - rec).abs() < 1e-4, "Mismatch: {} vs {}", orig, rec);
         }
     }
 
@@ -250,7 +251,13 @@ mod tests {
 
         // Create test input
         let input: Vec<f32> = (0..width * height)
-            .map(|i| if i == width * height / 2 + width / 2 { 1.0 } else { 0.0 })
+            .map(|i| {
+                if i == width * height / 2 + width / 2 {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
             .collect();
 
         // Delta kernel (identity)
@@ -261,12 +268,152 @@ mod tests {
 
         // Result should equal input
         for (inp, res) in input.iter().zip(result.iter()) {
+            assert!((inp - res).abs() < 1e-4, "Mismatch: {} vs {}", inp, res);
+        }
+    }
+
+    #[test]
+    fn test_convolution_shift() {
+        // A shifted delta kernel should shift the result
+        let width = 16;
+        let height = 16;
+        let mut convolver = FftConvolver::new(width, height);
+
+        // Create input with a single point
+        let mut input = vec![0.0f32; width * height];
+        let input_x = 5;
+        let input_y = 5;
+        input[input_y * width + input_x] = 1.0;
+
+        // Delta kernel shifted by (3, 2) - in FFT terms, this is at position (3, 2)
+        let shift_x = 3;
+        let shift_y = 2;
+        let mut kernel = vec![0.0f32; width * height];
+        kernel[shift_y * width + shift_x] = 1.0;
+
+        let result = convolver.convolve(&input, &kernel);
+
+        // The point should move to (input_x + shift_x, input_y + shift_y) with wrapping
+        let expected_x = (input_x + shift_x) % width;
+        let expected_y = (input_y + shift_y) % height;
+
+        // Check that mass is at expected location
+        let result_at_expected = result[expected_y * width + expected_x];
+        assert!(
+            (result_at_expected - 1.0).abs() < 1e-4,
+            "Expected 1.0 at ({}, {}), got {}",
+            expected_x,
+            expected_y,
+            result_at_expected
+        );
+
+        // Check that total mass is conserved
+        let total: f32 = result.iter().sum();
+        assert!(
+            (total - 1.0).abs() < 1e-4,
+            "Total mass should be 1.0, got {}",
+            total
+        );
+    }
+
+    #[test]
+    fn test_convolution_blur() {
+        // A uniform kernel should blur/average the input
+        let width = 16;
+        let height = 16;
+        let mut convolver = FftConvolver::new(width, height);
+
+        // Create input with a single point
+        let mut input = vec![0.0f32; width * height];
+        input[8 * width + 8] = 1.0;
+
+        // 3x3 uniform blur kernel (normalized)
+        let mut kernel = vec![0.0f32; width * height];
+        let kernel_val = 1.0 / 9.0;
+        for ky in 0..3 {
+            for kx in 0..3 {
+                // Wrap kernel around (FFT convention)
+                let wy = if ky == 0 { 0 } else { height - (3 - ky) };
+                let wx = if kx == 0 { 0 } else { width - (3 - kx) };
+                kernel[wy * width + wx] = kernel_val;
+            }
+        }
+
+        let result = convolver.convolve(&input, &kernel);
+
+        // Total mass should be conserved
+        let total: f32 = result.iter().sum();
+        assert!(
+            (total - 1.0).abs() < 1e-4,
+            "Total mass should be 1.0 after blur, got {}",
+            total
+        );
+
+        // The result should have spread the point mass
+        let center_val = result[8 * width + 8];
+        assert!(
+            center_val < 0.5,
+            "Blur should spread mass, center should be < 0.5, got {}",
+            center_val
+        );
+        assert!(
+            center_val > 0.05,
+            "Center should still have significant mass, got {}",
+            center_val
+        );
+    }
+
+    #[test]
+    fn test_convolution_commutative() {
+        // Convolution should be commutative: f * g == g * f
+        let width = 16;
+        let height = 16;
+        let mut convolver = FftConvolver::new(width, height);
+
+        // Two different patterns
+        let pattern_a: Vec<f32> = (0..width * height)
+            .map(|i| ((i * 17) % 100) as f32 / 100.0)
+            .collect();
+        let pattern_b: Vec<f32> = (0..width * height)
+            .map(|i| ((i * 31 + 7) % 100) as f32 / 100.0)
+            .collect();
+
+        let result_ab = convolver.convolve(&pattern_a, &pattern_b);
+        let result_ba = convolver.convolve(&pattern_b, &pattern_a);
+
+        for i in 0..width * height {
             assert!(
-                (inp - res).abs() < 1e-4,
-                "Mismatch: {} vs {}",
-                inp,
-                res
+                (result_ab[i] - result_ba[i]).abs() < 1e-4,
+                "Convolution not commutative at {}: {} vs {}",
+                i,
+                result_ab[i],
+                result_ba[i]
             );
+        }
+    }
+
+    #[test]
+    fn test_fft_different_sizes() {
+        // Test FFT works correctly for different grid sizes
+        for &(width, height) in &[(8, 8), (16, 16), (32, 32), (16, 32), (32, 16)] {
+            let mut convolver = FftConvolver::new(width, height);
+
+            let input: Vec<f32> = (0..width * height).map(|i| (i % 10) as f32).collect();
+
+            let freq = convolver.fft2d(&input);
+            let mut freq_copy = freq.clone();
+            let recovered = convolver.ifft2d(&mut freq_copy);
+
+            for (orig, rec) in input.iter().zip(recovered.iter()) {
+                assert!(
+                    (orig - rec).abs() < 1e-4,
+                    "FFT roundtrip failed for {}x{}: {} vs {}",
+                    width,
+                    height,
+                    orig,
+                    rec
+                );
+            }
         }
     }
 }
