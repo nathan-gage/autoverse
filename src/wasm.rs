@@ -2,12 +2,12 @@
 //!
 //! Provides a thin wrapper around `CpuPropagator` for browser environments.
 
-use wasm_bindgen::prelude::*;
 use serde::Serialize;
+use wasm_bindgen::prelude::*;
 
 use crate::{
     compute::{CpuPropagator, SimulationState, SimulationStats},
-    schema::{SimulationConfig, Seed},
+    schema::{Seed, SimulationConfig},
 };
 
 /// Initialize WASM module with panic hook and logging.
@@ -40,10 +40,10 @@ impl WasmPropagator {
     #[wasm_bindgen(constructor)]
     pub fn new(config_json: &str, seed_json: &str) -> Result<WasmPropagator, JsValue> {
         let config: SimulationConfig = serde_json::from_str(config_json)
-            .map_err(|e| JsValue::from_str(&format!("Invalid config JSON: {}", e)))?;
+            .map_err(|e| JsValue::from_str(&format!("Invalid config JSON: {e}")))?;
 
         let seed: Seed = serde_json::from_str(seed_json)
-            .map_err(|e| JsValue::from_str(&format!("Invalid seed JSON: {}", e)))?;
+            .map_err(|e| JsValue::from_str(&format!("Invalid seed JSON: {e}")))?;
 
         let propagator = CpuPropagator::new(config.clone());
         let state = SimulationState::from_seed(&seed, &config);
@@ -76,7 +76,7 @@ impl WasmPropagator {
         };
 
         serde_wasm_bindgen::to_value(&snapshot)
-            .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
     }
 
     /// Get simulation statistics as JSON.
@@ -84,14 +84,14 @@ impl WasmPropagator {
     pub fn get_stats(&self) -> Result<JsValue, JsValue> {
         let stats = SimulationStats::from_state(&self.state);
         serde_wasm_bindgen::to_value(&stats)
-            .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
     }
 
     /// Reset simulation with new seed.
     #[wasm_bindgen]
     pub fn reset(&mut self, seed_json: &str) -> Result<(), JsValue> {
         let seed: Seed = serde_json::from_str(seed_json)
-            .map_err(|e| JsValue::from_str(&format!("Invalid seed JSON: {}", e)))?;
+            .map_err(|e| JsValue::from_str(&format!("Invalid seed JSON: {e}")))?;
 
         let config = self.propagator.config();
         self.state = SimulationState::from_seed(&seed, config);
@@ -133,7 +133,7 @@ impl WasmPropagator {
 /// Serializable snapshot of simulation state.
 #[derive(Serialize)]
 struct StateSnapshot<'a> {
-    channels: &'a Vec<Vec<f32>>,
+    channels: &'a [Vec<f32>],
     width: usize,
     height: usize,
     time: f32,
