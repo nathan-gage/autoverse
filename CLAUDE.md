@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Before Starting Work
+
+Always consult the `@issue-tracker` agent before beginning any task. This ensures work is linked to existing GitHub issues or new issues are created for tracking.
+
 ## Build Commands
 
 ```bash
