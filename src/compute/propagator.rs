@@ -208,7 +208,7 @@ impl CpuPropagator {
 }
 
 /// Simulation statistics for monitoring.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SimulationStats {
     pub total_mass: f32,
     pub max_value: f32,

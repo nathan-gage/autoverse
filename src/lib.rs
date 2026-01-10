@@ -43,6 +43,10 @@
 pub mod compute;
 pub mod schema;
 
+// WebAssembly bindings (only for wasm32 target)
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
 // Re-export commonly used types
 pub use compute::{CpuPropagator, SimulationState, SimulationStats};
 pub use schema::{Pattern, Seed, SimulationConfig};
