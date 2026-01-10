@@ -6,6 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Always consult the `@issue-tracker` agent before beginning any task. This ensures work is linked to existing GitHub issues or new issues are created for tracking.
 
+## Before Pushing Changes
+
+Always format, lint, and test before pushing:
+```bash
+cargo fmt
+cargo clippy
+cargo test
+```
+
+Fix any warnings or failures before committing.
+
 ## Build Commands
 
 ### Native Builds
