@@ -56,7 +56,8 @@ impl Kernel {
                 let mut value = 0.0f32;
                 for ring in &config.rings {
                     let ring_dist = (norm_dist - ring.distance).abs();
-                    let bump = ring.amplitude * (-ring_dist * ring_dist / (2.0 * ring.width * ring.width)).exp();
+                    let bump = ring.amplitude
+                        * (-ring_dist * ring_dist / (2.0 * ring.width * ring.width)).exp();
                     value += bump;
                 }
 

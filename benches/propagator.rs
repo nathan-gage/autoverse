@@ -1,6 +1,6 @@
 //! Benchmarks for Flow Lenia propagator.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 
 use flow_lenia::{
     compute::{CpuPropagator, SimulationState},

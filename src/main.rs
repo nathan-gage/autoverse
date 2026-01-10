@@ -68,7 +68,10 @@ fn main() {
 
     println!("Flow Lenia Simulation");
     println!("=====================");
-    println!("Grid: {}x{} ({} channels)", config.width, config.height, config.channels);
+    println!(
+        "Grid: {}x{} ({} channels)",
+        config.width, config.height, config.channels
+    );
     println!("Kernels: {}", config.kernels.len());
     println!("dt: {}", config.dt);
     println!("Steps: {}", steps);
@@ -81,7 +84,10 @@ fn main() {
     println!("Initial state:");
     println!("  Total mass: {:.6}", initial_stats.total_mass);
     println!("  Active cells: {}", initial_stats.active_cells);
-    println!("  Value range: [{:.6}, {:.6}]", initial_stats.min_value, initial_stats.max_value);
+    println!(
+        "  Value range: [{:.6}, {:.6}]",
+        initial_stats.min_value, initial_stats.max_value
+    );
     println!();
 
     // Create propagator
@@ -117,13 +123,22 @@ fn main() {
     println!("Final state:");
     println!("  Total mass: {:.6}", final_stats.total_mass);
     println!("  Active cells: {}", final_stats.active_cells);
-    println!("  Value range: [{:.6}, {:.6}]", final_stats.min_value, final_stats.max_value);
+    println!(
+        "  Value range: [{:.6}, {:.6}]",
+        final_stats.min_value, final_stats.max_value
+    );
     println!();
-    println!("Mass conservation: {:.4}%",
-        (1.0 - (final_stats.total_mass - initial_stats.total_mass).abs() / initial_stats.total_mass) * 100.0);
-    println!("Time: {:.2}s ({:.1} steps/s)",
+    println!(
+        "Mass conservation: {:.4}%",
+        (1.0 - (final_stats.total_mass - initial_stats.total_mass).abs()
+            / initial_stats.total_mass)
+            * 100.0
+    );
+    println!(
+        "Time: {:.2}s ({:.1} steps/s)",
         elapsed.as_secs_f32(),
-        steps as f32 / elapsed.as_secs_f32());
+        steps as f32 / elapsed.as_secs_f32()
+    );
 }
 
 fn print_example_config() {
