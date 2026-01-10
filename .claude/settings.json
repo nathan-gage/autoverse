@@ -8,6 +8,7 @@
       "mcp__plugin_github_github__add_issue_comment",
       "mcp__plugin_github_github__get_label",
       "Bash(cargo test:*)",
+      "Bash(cargo fmt:*)",
       "Bash(cargo build:*)",
       "Bash(cargo clippy:*)"
     ]
