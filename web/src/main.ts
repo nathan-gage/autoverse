@@ -66,11 +66,13 @@ class FlowLeniaViewer {
 	};
 
 	private isPlaying = false;
-	private stepsPerFrame = 1;
+	private stepsPerSecond = 60;
 	private animationFrameId: number | null = null;
 	private frameCount = 0;
 	private fpsUpdateTime = 0;
 	private currentFps = 0;
+	private lastFrameTime = 0;
+	private stepAccumulator = 0;
 
 	constructor() {
 		this.simulation = new SimulationManager(DEFAULT_CONFIG, DEFAULT_SEED);
@@ -95,7 +97,7 @@ class FlowLeniaViewer {
 				onStep: () => this.step(),
 				onReset: (seed) => this.reset(seed),
 				onSpeedChange: (speed) => {
-					this.stepsPerFrame = speed;
+					this.stepsPerSecond = speed;
 				},
 				onModeChange: (mode) => this.setMode(mode),
 				onSettingsChange: (settings) => this.updateSettings(settings),
@@ -191,9 +193,12 @@ class FlowLeniaViewer {
 	private play(): void {
 		if (this.isPlaying) return;
 		this.isPlaying = true;
-		this.fpsUpdateTime = performance.now();
+		const now = performance.now();
+		this.fpsUpdateTime = now;
+		this.lastFrameTime = now;
+		this.stepAccumulator = 0;
 		this.frameCount = 0;
-		this.animate(this.fpsUpdateTime);
+		this.animate(now);
 	}
 
 	private pause(): void {
@@ -219,9 +224,20 @@ class FlowLeniaViewer {
 	private async animate(currentTime: number): Promise<void> {
 		if (!this.isPlaying) return;
 
-		await this.simulation.run(this.stepsPerFrame);
-		this.render();
-		this.updateStats();
+		// Calculate time-based steps
+		const deltaTime = (currentTime - this.lastFrameTime) / 1000; // in seconds
+		this.lastFrameTime = currentTime;
+
+		// Accumulate fractional steps and run integer steps
+		this.stepAccumulator += this.stepsPerSecond * deltaTime;
+		const stepsToRun = Math.floor(this.stepAccumulator);
+		this.stepAccumulator -= stepsToRun;
+
+		if (stepsToRun > 0) {
+			await this.simulation.run(stepsToRun);
+			this.render();
+			this.updateStats();
+		}
 
 		// FPS calculation
 		this.frameCount++;
