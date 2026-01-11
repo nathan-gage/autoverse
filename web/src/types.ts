@@ -125,8 +125,10 @@ export type InteractionMode = "view" | "select" | "draw" | "erase";
 
 export type BackendType = "cpu" | "gpu";
 
+export type ColorScheme = "grayscale" | "thermal" | "viridis" | "theme";
+
 export interface ViewerSettings {
-	colorScheme: "grayscale" | "thermal" | "viridis";
+	colorScheme: ColorScheme;
 	showGrid: boolean;
 	showSelection: boolean;
 	brushSize: number;

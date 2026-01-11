@@ -407,7 +407,7 @@ export class UI {
 			.map(
 				(preset) => `
       <div class="preset-item" data-id="${escapeHtml(preset.id)}" draggable="true">
-        <img src="${escapeHtml(preset.thumbnail)}" alt="${escapeHtml(preset.name)}" class="preset-thumbnail">
+        <img src="${escapeHtml(preset.thumbnail || "")}" alt="${escapeHtml(preset.name)}" class="preset-thumbnail">
         <div class="preset-info">
           <span class="preset-name">${escapeHtml(preset.name)}</span>
           <span class="preset-size">${preset.region.width}x${preset.region.height}</span>
