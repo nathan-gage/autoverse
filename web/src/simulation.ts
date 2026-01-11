@@ -56,7 +56,9 @@ export class SimulationManager {
 			// Use Vite's BASE_URL to correctly resolve WASM path in all deployment contexts
 			const baseUrl = import.meta.env.BASE_URL || "/";
 			const wasmUrl = `${baseUrl}pkg/flow_lenia.js`;
-			this.wasmModule = (await import(/* webpackIgnore: true */ /* @vite-ignore */ wasmUrl)) as WasmModule;
+			this.wasmModule = (await import(
+				/* webpackIgnore: true */ /* @vite-ignore */ wasmUrl
+			)) as WasmModule;
 			await this.wasmModule.default();
 
 			// Check WebGPU availability
