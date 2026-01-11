@@ -65,6 +65,7 @@ pollster = "0.4"
 # WASM-specific: JavaScript bindings
 wasm-bindgen = "0.2"
 serde-wasm-bindgen = "0.6"
+js-sys = "0.3"
 
 # WASM-specific: Logging to console
 console_error_panic_hook = "0.1"
@@ -73,6 +74,9 @@ wasm-logger = "0.2"
 # WASM-specific: Async for GPU
 wasm-bindgen-futures = "0.4"
 futures-channel = "0.3"
+
+# WASM-specific: Random number generation
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 criterion = "0.5"
