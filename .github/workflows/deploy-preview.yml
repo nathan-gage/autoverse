@@ -67,6 +67,8 @@ jobs:
       - name: Build web viewer
         working-directory: web
         run: bun run build
+        env:
+          BASE_PATH: /preview/pr-${{ github.event.pull_request.number }}/
 
       - name: Deploy preview to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
