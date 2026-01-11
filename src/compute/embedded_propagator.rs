@@ -40,7 +40,8 @@ pub struct EmbeddedState {
 impl EmbeddedState {
     /// Create new state from seed with default parameters.
     pub fn from_seed(seed: &Seed, config: &SimulationConfig) -> Self {
-        let grid_3d = seed.generate(config.width, config.height, config.channels);
+        // Use 2D generation for embedded state (parameter embedding is 2D only)
+        let grid_3d = seed.generate_2d(config.width, config.height, config.channels);
 
         // Flatten to [channel][flat_grid]
         let channels: Vec<Vec<f32>> = grid_3d
@@ -77,7 +78,8 @@ impl EmbeddedState {
         config: &SimulationConfig,
         initial_params: Vec<ParameterGrid>,
     ) -> Self {
-        let grid_3d = seed.generate(config.width, config.height, config.channels);
+        // Use 2D generation for embedded state (parameter embedding is 2D only)
+        let grid_3d = seed.generate_2d(config.width, config.height, config.channels);
 
         let channels: Vec<Vec<f32>> = grid_3d
             .into_iter()
@@ -379,6 +381,7 @@ mod tests {
         SimulationConfig {
             width: 32,
             height: 32,
+            depth: 1,
             channels: 1,
             dt: 0.2,
             kernel_radius: 5,

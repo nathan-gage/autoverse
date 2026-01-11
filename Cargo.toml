@@ -73,6 +73,7 @@ futures-channel = "0.3"
 [dev-dependencies]
 criterion = "0.5"
 proptest = "1.6"
+tempfile = "3"
 wasm-bindgen-test = "0.3"
 
 [profile.release]

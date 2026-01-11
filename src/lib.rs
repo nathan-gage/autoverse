@@ -6,10 +6,11 @@
 //!
 //! # Architecture
 //!
-//! The crate is split into two main modules:
+//! The crate is split into three main modules:
 //!
 //! - `schema`: Configuration types and seeding for simulations
 //! - `compute`: Numerical computation (kernels, FFT, flow, propagator)
+//! - `animation`: Recording and playback of simulation animations
 //!
 //! # Example
 //!
@@ -40,6 +41,7 @@
 //! println!("Total mass after 100 steps: {}", state.total_mass());
 //! ```
 
+pub mod animation;
 pub mod compute;
 pub mod schema;
 
@@ -48,5 +50,6 @@ pub mod schema;
 pub mod wasm;
 
 // Re-export commonly used types
+pub use animation::{AnimationPlayer, AnimationRecorder, RecorderConfig};
 pub use compute::{CpuPropagator, SimulationState, SimulationStats};
 pub use schema::{Pattern, Seed, SimulationConfig};

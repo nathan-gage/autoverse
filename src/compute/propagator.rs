@@ -13,13 +13,18 @@ use super::{
 };
 
 /// Simulation state container.
+///
+/// Supports both 2D and 3D grids. For 2D, depth = 1.
+/// Data is stored as flat arrays with indexing: [channel][z * height * width + y * width + x]
 pub struct SimulationState {
-    /// Per-channel activation grids [channel][y * width + x].
+    /// Per-channel activation grids [channel][z * height * width + y * width + x].
     pub channels: Vec<Vec<f32>>,
-    /// Grid width.
+    /// Grid width (X dimension).
     pub width: usize,
-    /// Grid height.
+    /// Grid height (Y dimension).
     pub height: usize,
+    /// Grid depth (Z dimension). 1 for 2D simulations.
+    pub depth: usize,
     /// Current simulation time.
     pub time: f32,
     /// Step count.
@@ -29,21 +34,46 @@ pub struct SimulationState {
 impl SimulationState {
     /// Create new state from seed.
     pub fn from_seed(seed: &Seed, config: &SimulationConfig) -> Self {
-        let grid_3d = seed.generate(config.width, config.height, config.channels);
+        // Generate 4D grid: [channel][z][y][x]
+        let grid_4d = seed.generate(config.width, config.height, config.depth, config.channels);
 
-        // Flatten to [channel][flat_grid]
-        let channels: Vec<Vec<f32>> = grid_3d
+        // Flatten to [channel][z * height * width + y * width + x]
+        let channels: Vec<Vec<f32>> = grid_4d
             .into_iter()
-            .map(|channel_2d| channel_2d.into_iter().flatten().collect())
+            .map(|channel_3d| {
+                channel_3d
+                    .into_iter()
+                    .flat_map(|slice| slice.into_iter().flatten())
+                    .collect()
+            })
             .collect();
 
         Self {
             channels,
             width: config.width,
             height: config.height,
+            depth: config.depth,
             time: 0.0,
             step: 0,
         }
+    }
+
+    /// Check if this is a 3D simulation.
+    #[inline]
+    pub fn is_3d(&self) -> bool {
+        self.depth > 1
+    }
+
+    /// Get total grid size (width * height * depth).
+    #[inline]
+    pub fn grid_size(&self) -> usize {
+        self.width * self.height * self.depth
+    }
+
+    /// Convert (x, y, z) coordinates to flat index.
+    #[inline]
+    pub fn idx(&self, x: usize, y: usize, z: usize) -> usize {
+        z * self.height * self.width + y * self.width + x
     }
 
     /// Get total mass across all channels.
@@ -51,21 +81,33 @@ impl SimulationState {
         total_mass_all_channels(&self.channels)
     }
 
-    /// Get value at (x, y, channel).
+    /// Get value at (x, y, channel) for 2D grids.
     #[inline]
     pub fn get(&self, x: usize, y: usize, channel: usize) -> f32 {
         self.channels[channel][y * self.width + x]
     }
 
-    /// Sum across all channels at (x, y).
+    /// Get value at (x, y, z, channel) for 3D grids.
+    #[inline]
+    pub fn get_3d(&self, x: usize, y: usize, z: usize, channel: usize) -> f32 {
+        self.channels[channel][self.idx(x, y, z)]
+    }
+
+    /// Sum across all channels at (x, y) for 2D grids.
     pub fn sum_at(&self, x: usize, y: usize) -> f32 {
         let idx = y * self.width + x;
         self.channels.iter().map(|c| c[idx]).sum()
     }
 
+    /// Sum across all channels at (x, y, z) for 3D grids.
+    pub fn sum_at_3d(&self, x: usize, y: usize, z: usize) -> f32 {
+        let idx = self.idx(x, y, z);
+        self.channels.iter().map(|c| c[idx]).sum()
+    }
+
     /// Compute sum grid across all channels.
     pub fn channel_sum(&self) -> Vec<f32> {
-        let size = self.width * self.height;
+        let size = self.grid_size();
         let mut sum = vec![0.0f32; size];
 
         for channel in &self.channels {
@@ -440,6 +482,7 @@ mod tests {
         SimulationConfig {
             width: 64,
             height: 64,
+            depth: 1,
             channels: 1,
             dt: 0.2,
             kernel_radius: 10,

@@ -1153,6 +1153,7 @@ mod tests {
         SimulationConfig {
             width: 64,
             height: 64,
+            depth: 1,
             channels: 1,
             dt: 0.1,
             kernel_radius: 7,
@@ -1184,6 +1185,7 @@ mod tests {
         SimulationConfig {
             width: 64,
             height: 64,
+            depth: 1,
             channels: 1,
             dt: 0.1,
             kernel_radius: 13, // Max radius
