@@ -7,15 +7,19 @@ use std::sync::Arc;
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 
+/// Block size for cache-friendly transpose operations.
+/// 32×32 blocks fit well in L1 cache (32×32×8 bytes = 8KB for Complex<f32>).
+const TRANSPOSE_BLOCK_SIZE: usize = 32;
+
 /// Pre-allocated scratch buffers for FFT operations.
 /// Each thread/parallel task should have its own FftScratch to avoid allocation.
 pub struct FftScratch {
     /// Scratch for row FFT
     pub row_scratch: Vec<Complex<f32>>,
-    /// Scratch for column FFT
+    /// Scratch for column FFT (used for transposed rows)
     pub col_scratch: Vec<Complex<f32>>,
-    /// Column extraction buffer
-    pub col_buffer: Vec<Complex<f32>>,
+    /// Transpose buffer for cache-friendly column FFT
+    pub transpose_buffer: Vec<Complex<f32>>,
     /// Input frequency buffer
     pub input_freq: Vec<Complex<f32>>,
     /// Result frequency buffer
@@ -39,9 +43,32 @@ impl FftScratch {
         Self {
             row_scratch: vec![Complex::new(0.0, 0.0); max_row_scratch],
             col_scratch: vec![Complex::new(0.0, 0.0); max_col_scratch],
-            col_buffer: vec![Complex::new(0.0, 0.0); convolver.height],
+            transpose_buffer: vec![Complex::new(0.0, 0.0); grid_size],
             input_freq: vec![Complex::new(0.0, 0.0); grid_size],
             result_freq: vec![Complex::new(0.0, 0.0); grid_size],
+        }
+    }
+}
+
+/// Transpose a matrix from src to dst using cache-friendly block algorithm.
+/// src is width×height (row-major), dst becomes height×width (row-major).
+#[inline]
+fn transpose_blocked(src: &[Complex<f32>], dst: &mut [Complex<f32>], width: usize, height: usize) {
+    // Process in blocks for cache efficiency
+    for block_y in (0..height).step_by(TRANSPOSE_BLOCK_SIZE) {
+        let block_y_end = (block_y + TRANSPOSE_BLOCK_SIZE).min(height);
+        for block_x in (0..width).step_by(TRANSPOSE_BLOCK_SIZE) {
+            let block_x_end = (block_x + TRANSPOSE_BLOCK_SIZE).min(width);
+
+            // Transpose this block
+            for y in block_y..block_y_end {
+                for x in block_x..block_x_end {
+                    // src[y][x] -> dst[x][y]
+                    // src index: y * width + x
+                    // dst index: x * height + y
+                    dst[x * height + y] = src[y * width + x];
+                }
+            }
         }
     }
 }
@@ -255,6 +282,7 @@ impl CachedConvolver {
 
     /// Convolve input with precomputed kernel using scratch buffers.
     /// Avoids allocation by using pre-allocated scratch space.
+    /// Uses matrix transpose for cache-friendly column FFT operations.
     #[inline]
     pub fn convolve_with_kernel_scratch(
         &self,
@@ -263,13 +291,13 @@ impl CachedConvolver {
         scratch: &mut FftScratch,
         output: &mut [f32],
     ) {
-        // Forward FFT into scratch.input_freq
-        self.fft2d_into(
+        // Forward FFT into scratch.input_freq using transpose for column FFT
+        self.fft2d_transpose(
             input,
             &mut scratch.input_freq,
+            &mut scratch.transpose_buffer,
             &mut scratch.row_scratch,
             &mut scratch.col_scratch,
-            &mut scratch.col_buffer,
         );
 
         let kernel = &self.kernels[kernel_idx];
@@ -284,81 +312,74 @@ impl CachedConvolver {
             scratch.result_freq[i] = inp * k;
         }
 
-        // Inverse FFT into output
-        self.ifft2d_into(
+        // Inverse FFT into output using transpose for column IFFT
+        self.ifft2d_transpose(
             &mut scratch.result_freq,
             output,
+            &mut scratch.transpose_buffer,
             &mut scratch.row_scratch,
             &mut scratch.col_scratch,
-            &mut scratch.col_buffer,
         );
     }
 
-    /// Perform 2D FFT into pre-allocated output buffer using individual scratch buffers.
+    /// Perform 2D FFT using matrix transpose for cache-friendly column access.
+    /// Algorithm: row FFT -> transpose -> row FFT (on transposed = column FFT) -> transpose back
     #[inline]
-    fn fft2d_into(
+    fn fft2d_transpose(
         &self,
         input: &[f32],
         output: &mut [Complex<f32>],
+        transpose_buf: &mut [Complex<f32>],
         row_scratch: &mut [Complex<f32>],
         col_scratch: &mut [Complex<f32>],
-        col_buffer: &mut [Complex<f32>],
     ) {
         // Convert input to complex
         for (i, &x) in input.iter().enumerate() {
             output[i] = Complex::new(x, 0.0);
         }
 
-        // Row-wise FFT using cached plan
+        // Row-wise FFT (width rows of length width)
         for row in output.chunks_exact_mut(self.width) {
             self.fft_row.process_with_scratch(row, row_scratch);
         }
 
-        // Column-wise FFT
-        for x in 0..self.width {
-            // Extract column
-            for y in 0..self.height {
-                col_buffer[y] = output[y * self.width + x];
-            }
+        // Transpose: output (height×width) -> transpose_buf (width×height)
+        // After transpose, what were columns are now rows
+        transpose_blocked(output, transpose_buf, self.width, self.height);
 
-            // FFT column using cached plan
-            self.fft_col.process_with_scratch(col_buffer, col_scratch);
-
-            // Write back
-            for y in 0..self.height {
-                output[y * self.width + x] = col_buffer[y];
-            }
+        // Row-wise FFT on transposed data (this is column FFT on original)
+        // transpose_buf has width rows of length height
+        for row in transpose_buf.chunks_exact_mut(self.height) {
+            self.fft_col.process_with_scratch(row, col_scratch);
         }
+
+        // Transpose back: transpose_buf (width×height) -> output (height×width)
+        transpose_blocked(transpose_buf, output, self.height, self.width);
     }
 
-    /// Perform inverse 2D FFT into pre-allocated output buffer using individual scratch buffers.
-    /// Note: freq_data is modified in place during computation.
+    /// Perform inverse 2D FFT using matrix transpose for cache-friendly column access.
+    /// Algorithm: transpose -> row IFFT (= column IFFT) -> transpose back -> row IFFT
     #[inline]
-    fn ifft2d_into(
+    fn ifft2d_transpose(
         &self,
         freq_data: &mut [Complex<f32>],
         output: &mut [f32],
+        transpose_buf: &mut [Complex<f32>],
         row_scratch: &mut [Complex<f32>],
         col_scratch: &mut [Complex<f32>],
-        col_buffer: &mut [Complex<f32>],
     ) {
-        // Column-wise IFFT
-        for x in 0..self.width {
-            // Extract column
-            for y in 0..self.height {
-                col_buffer[y] = freq_data[y * self.width + x];
-            }
+        // Transpose: freq_data (height×width) -> transpose_buf (width×height)
+        transpose_blocked(freq_data, transpose_buf, self.width, self.height);
 
-            // IFFT column using cached plan
-            self.ifft_col.process_with_scratch(col_buffer, col_scratch);
-
-            // Write back
-            for y in 0..self.height {
-                freq_data[y * self.width + x] = col_buffer[y];
-            }
+        // Row-wise IFFT on transposed data (this is column IFFT on original)
+        for row in transpose_buf.chunks_exact_mut(self.height) {
+            self.ifft_col.process_with_scratch(row, col_scratch);
         }
 
-        // Row-wise IFFT using cached plan
+        // Transpose back: transpose_buf (width×height) -> freq_data (height×width)
+        transpose_blocked(transpose_buf, freq_data, self.height, self.width);
+
+        // Row-wise IFFT
         for row in freq_data.chunks_exact_mut(self.width) {
             self.ifft_row.process_with_scratch(row, row_scratch);
         }
