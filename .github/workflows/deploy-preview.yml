@@ -83,7 +83,11 @@ jobs:
             const prNumber = context.payload.pull_request.number;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const previewUrl = `https://${owner}.github.io/${repo}/preview/pr-${prNumber}/`;
+
+            // Get custom domain from GitHub Pages config
+            const pages = await github.rest.repos.getPages({ owner, repo });
+            const domain = pages.data.cname || `${owner}.github.io/${repo}`;
+            const previewUrl = `https://${domain}/preview/pr-${prNumber}/`;
 
             // Check for existing comment
             const comments = await github.rest.issues.listComments({
