@@ -384,8 +384,8 @@ impl GpuPropagator {
                 label: Some("Step Encoder"),
             });
 
-        let workgroups_x = (width + 15) / 16;
-        let workgroups_y = (height + 15) / 16;
+        let workgroups_x = width.div_ceil(16);
+        let workgroups_y = height.div_ceil(16);
 
         // Stage 1: Convolution + Growth for each kernel
         for (kernel_idx, kernel_config) in self.config.kernels.iter().enumerate() {

@@ -56,6 +56,7 @@ pub fn advect_mass(
 /// * `dt` - Time step
 /// * `distribution_size` - Half-width of distribution kernel (s parameter)
 #[inline]
+#[allow(clippy::too_many_arguments)]
 pub fn advect_mass_into(
     current: &[f32],
     flow_x: &[f32],
