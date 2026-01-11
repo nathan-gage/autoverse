@@ -280,12 +280,12 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
 		species: [
 			{
 				name: "Species A",
-				params: { mu: 0.15, sigma: 0.015, weight: 1.0, beta_a: 1.0, n: 2.0 },
+				params: { mu: 0.1, sigma: 0.012, weight: 0.8, beta_a: 0.7, n: 1.5 },
 				initial_region: [0.25, 0.5, 0.08],
 			},
 			{
 				name: "Species B",
-				params: { mu: 0.2, sigma: 0.02, weight: 1.2, beta_a: 0.8, n: 3.0 },
+				params: { mu: 0.25, sigma: 0.025, weight: 1.5, beta_a: 1.5, n: 3.5 },
 				initial_region: [0.75, 0.5, 0.08],
 			},
 		],
@@ -307,17 +307,17 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
 		species: [
 			{
 				name: "Fast",
-				params: { mu: 0.12, sigma: 0.012, weight: 1.0, beta_a: 0.8, n: 2.0 },
+				params: { mu: 0.08, sigma: 0.01, weight: 0.7, beta_a: 0.6, n: 1.5 },
 				initial_region: [0.5, 0.25, 0.06],
 			},
 			{
 				name: "Medium",
-				params: { mu: 0.15, sigma: 0.015, weight: 1.0, beta_a: 1.0, n: 2.5 },
+				params: { mu: 0.18, sigma: 0.018, weight: 1.2, beta_a: 1.0, n: 2.5 },
 				initial_region: [0.3, 0.7, 0.06],
 			},
 			{
 				name: "Slow",
-				params: { mu: 0.2, sigma: 0.02, weight: 1.2, beta_a: 1.2, n: 3.0 },
+				params: { mu: 0.3, sigma: 0.028, weight: 1.8, beta_a: 1.5, n: 4.0 },
 				initial_region: [0.7, 0.7, 0.06],
 			},
 		],

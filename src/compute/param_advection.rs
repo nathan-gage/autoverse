@@ -133,6 +133,8 @@ pub fn advect_mass_and_params_into(
                         distribution_size,
                         dest_x as f32,
                         dest_y as f32,
+                        width,
+                        height,
                     );
 
                     if overlap > 0.0 {
@@ -207,6 +209,8 @@ pub fn advect_mass_and_params_dominant(
                         distribution_size,
                         dest_x as f32,
                         dest_y as f32,
+                        width,
+                        height,
                     );
 
                     if overlap > 0.0 {
@@ -251,44 +255,76 @@ fn mix_contributions(contributions: &[MassContribution], config: &EmbeddingConfi
     }
 }
 
-/// Compute the overlap area of a distribution square with a cell.
+/// Compute the overlap area of a distribution square with a cell, handling periodic boundaries.
 ///
 /// The distribution kernel is a uniform square of size 2s centered at (dest_x, dest_y).
 /// The target cell occupies [cell_x, cell_x+1] x [cell_y, cell_y+1].
+/// This function accounts for periodic boundary conditions by checking all relevant wrapped positions.
 #[inline]
-fn compute_distribution_overlap(dest_x: f32, dest_y: f32, s: f32, cell_x: f32, cell_y: f32) -> f32 {
-    // Distribution square bounds
-    let dist_x_min = dest_x - s;
-    let dist_x_max = dest_x + s;
-    let dist_y_min = dest_y - s;
-    let dist_y_max = dest_y + s;
-
-    // Cell bounds
-    let cell_x_max = cell_x + 1.0;
-    let cell_y_max = cell_y + 1.0;
-
-    // Compute intersection
-    let overlap_x_min = dist_x_min.max(cell_x);
-    let overlap_x_max = dist_x_max.min(cell_x_max);
-    let overlap_y_min = dist_y_min.max(cell_y);
-    let overlap_y_max = dist_y_max.min(cell_y_max);
-
-    let overlap_width = (overlap_x_max - overlap_x_min).max(0.0);
-    let overlap_height = (overlap_y_max - overlap_y_min).max(0.0);
-    let overlap_area = overlap_width * overlap_height;
-
+fn compute_distribution_overlap(
+    dest_x: f32,
+    dest_y: f32,
+    s: f32,
+    cell_x: f32,
+    cell_y: f32,
+    width: usize,
+    height: usize,
+) -> f32 {
     // Normalize by total distribution area
     let total_area = (2.0 * s) * (2.0 * s);
-    if total_area > 1e-10 {
-        overlap_area / total_area
-    } else {
-        // Point distribution - check if cell contains the point
-        if cell_x <= dest_x && dest_x < cell_x_max && cell_y <= dest_y && dest_y < cell_y_max {
-            1.0
-        } else {
-            0.0
+
+    // For periodic boundaries, we need to check overlaps with wrapped positions
+    // Check the main position and wrapped positions (in case dest wraps around grid edges)
+    let mut max_overlap = 0.0f32;
+
+    // The offset values to try: we check the destination and its periodic images
+    let x_offsets = [0.0, -(width as f32), width as f32];
+    let y_offsets = [0.0, -(height as f32), height as f32];
+
+    for &x_off in &x_offsets {
+        for &y_off in &y_offsets {
+            let wrapped_dest_x = dest_x + x_off;
+            let wrapped_dest_y = dest_y + y_off;
+
+            // Distribution square bounds
+            let dist_x_min = wrapped_dest_x - s;
+            let dist_x_max = wrapped_dest_x + s;
+            let dist_y_min = wrapped_dest_y - s;
+            let dist_y_max = wrapped_dest_y + s;
+
+            // Cell bounds
+            let cell_x_max = cell_x + 1.0;
+            let cell_y_max = cell_y + 1.0;
+
+            // Compute intersection
+            let overlap_x_min = dist_x_min.max(cell_x);
+            let overlap_x_max = dist_x_max.min(cell_x_max);
+            let overlap_y_min = dist_y_min.max(cell_y);
+            let overlap_y_max = dist_y_max.min(cell_y_max);
+
+            let overlap_width = (overlap_x_max - overlap_x_min).max(0.0);
+            let overlap_height = (overlap_y_max - overlap_y_min).max(0.0);
+            let overlap_area = overlap_width * overlap_height;
+
+            if total_area > 1e-10 {
+                let overlap = overlap_area / total_area;
+                if overlap > max_overlap {
+                    max_overlap = overlap;
+                }
+            } else {
+                // Point distribution - check if cell contains the point
+                if cell_x <= wrapped_dest_x
+                    && wrapped_dest_x < cell_x_max
+                    && cell_y <= wrapped_dest_y
+                    && wrapped_dest_y < cell_y_max
+                {
+                    return 1.0;
+                }
+            }
         }
     }
+
+    max_overlap
 }
 
 /// Compute maximum flow magnitude for determining search radius.
@@ -453,20 +489,86 @@ mod tests {
 
     #[test]
     fn test_distribution_overlap() {
+        let width = 16;
+        let height = 16;
+
         // Full overlap (cell entirely within distribution)
-        let overlap = compute_distribution_overlap(0.5, 0.5, 2.0, 0.0, 0.0);
+        let overlap = compute_distribution_overlap(0.5, 0.5, 2.0, 0.0, 0.0, width, height);
         assert!(overlap > 0.0, "Cell should overlap distribution");
 
         // No overlap
-        let no_overlap = compute_distribution_overlap(10.0, 10.0, 1.0, 0.0, 0.0);
+        let no_overlap = compute_distribution_overlap(10.0, 10.0, 1.0, 0.0, 0.0, width, height);
         assert!((no_overlap - 0.0).abs() < 1e-6, "No overlap expected");
 
         // Partial overlap
-        let partial = compute_distribution_overlap(0.0, 0.0, 1.0, 0.0, 0.0);
+        let partial = compute_distribution_overlap(0.0, 0.0, 1.0, 0.0, 0.0, width, height);
         assert!(
             partial > 0.0 && partial < 1.0,
             "Partial overlap expected: {}",
             partial
+        );
+    }
+
+    #[test]
+    fn test_distribution_overlap_periodic() {
+        let width = 16;
+        let height = 16;
+
+        // Mass at position 15 flows right by 2, wrapping to position 1
+        // Distribution centered at 17 (wraps to 1) should overlap cell at 0 and 1
+        let overlap_at_1 = compute_distribution_overlap(17.0, 8.0, 1.0, 1.0, 8.0, width, height);
+        assert!(
+            overlap_at_1 > 0.0,
+            "Wrapped distribution should overlap: {}",
+            overlap_at_1
+        );
+
+        // Also check wrap in negative direction
+        let overlap_neg = compute_distribution_overlap(-1.0, 8.0, 1.0, 15.0, 8.0, width, height);
+        assert!(
+            overlap_neg > 0.0,
+            "Negative wrap should overlap: {}",
+            overlap_neg
+        );
+    }
+
+    #[test]
+    fn test_mass_conservation_across_boundary() {
+        let width = 16;
+        let height = 16;
+        let grid_size = width * height;
+
+        // Mass at right edge with rightward flow (will wrap)
+        let mut mass = vec![0.0f32; grid_size];
+        mass[8 * width + 14] = 1.0;
+
+        let mut params = ParameterGrid::from_defaults(width, height);
+        let custom = CellParams::new(0.25, 0.025, 2.0, 1.5, 3.0);
+        params.set(14, 8, custom);
+
+        // Flow that will wrap around
+        let flow_x = vec![5.0f32; grid_size];
+        let flow_y = vec![0.0f32; grid_size];
+
+        let config = EmbeddingConfig::enabled();
+        let (next_mass, _next_params) = advect_mass_and_params(
+            &mass, &params, &flow_x, &flow_y, &config, 0.5, 1.0, width, height,
+        );
+
+        // Mass should be conserved
+        let total: f32 = next_mass.iter().sum();
+        assert!(
+            (total - 1.0).abs() < 0.01,
+            "Mass not conserved across boundary: {}",
+            total
+        );
+
+        // Some mass should have wrapped to the left side
+        let left_mass: f32 = (0..3).map(|x| next_mass[8 * width + x]).sum();
+        assert!(
+            left_mass > 0.1,
+            "Mass should have wrapped to left side: {}",
+            left_mass
         );
     }
 }
