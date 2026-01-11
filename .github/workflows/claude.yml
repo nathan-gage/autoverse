@@ -35,9 +35,9 @@ jobs:
         with:
           components: rust-analyzer
 
-      - name: Install wgsl_analyzer
+      - name: Install wgsl-analyzer
         run: |
-          curl -L https://github.com/wgsl-analyzer/wgsl-analyzer/releases/latest/download/wgsl_analyzer-linux-x64.gz | gunzip > wgsl_analyzer
+          curl -L https://github.com/wgsl-analyzer/wgsl-analyzer/releases/latest/download/wgsl-analyzer-x86_64-unknown-linux-gnu.gz | gunzip > wgsl_analyzer
           chmod +x wgsl_analyzer
           sudo mv wgsl_analyzer /usr/local/bin/
 
