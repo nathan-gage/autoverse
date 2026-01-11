@@ -79,12 +79,8 @@ export interface RingPattern {
 
 export interface CustomPattern {
 	type: "Custom";
-	points: Array<{
-		x: number;
-		y: number;
-		channel: number;
-		value: number;
-	}>;
+	// Rust expects tuples: (x, y, channel, value)
+	values: Array<[number, number, number, number]>;
 }
 
 export interface SimulationState {

@@ -217,22 +217,23 @@ export class SimulationManager {
 		const state = this.getState();
 
 		// Build custom pattern from current state + placed region
-		const points: Array<{ x: number; y: number; channel: number; value: number }> = [];
+		// Use Map for efficient lookups: key = "x,y,ch"
+		const valueMap = new Map<string, number>();
 
-		// First, add all existing points
+		// First, add all existing values
 		for (let ch = 0; ch < state.channels.length; ch++) {
 			for (let y = 0; y < state.height; y++) {
 				for (let x = 0; x < state.width; x++) {
 					const idx = y * state.width + x;
 					const value = state.channels[ch][idx];
 					if (value > 0.001) {
-						points.push({ x, y, channel: ch, value });
+						valueMap.set(`${x},${y},${ch}`, value);
 					}
 				}
 			}
 		}
 
-		// Then overlay the region
+		// Then overlay the region (overwrites existing values at same location)
 		for (let ch = 0; ch < region.channels.length; ch++) {
 			for (let dy = 0; dy < region.height; dy++) {
 				for (let dx = 0; dx < region.width; dx++) {
@@ -242,22 +243,24 @@ export class SimulationManager {
 					const value = region.channels[ch][idx];
 
 					if (value > 0.001) {
-						// Remove existing point at this location if any
-						const existingIdx = points.findIndex((p) => p.x === x && p.y === y && p.channel === ch);
-						if (existingIdx >= 0) {
-							points.splice(existingIdx, 1);
-						}
-						points.push({ x, y, channel: ch, value });
+						valueMap.set(`${x},${y},${ch}`, value);
 					}
 				}
 			}
+		}
+
+		// Convert map to tuple array: [x, y, channel, value]
+		const values: Array<[number, number, number, number]> = [];
+		for (const [key, value] of valueMap) {
+			const [x, y, ch] = key.split(",").map(Number);
+			values.push([x, y, ch, value]);
 		}
 
 		// Reset with custom pattern
 		const customSeed: Seed = {
 			pattern: {
 				type: "Custom",
-				points,
+				values,
 			},
 		};
 
@@ -268,9 +271,9 @@ export class SimulationManager {
 	drawAt(x: number, y: number, radius: number, intensity: number, channel = 0): void {
 		this.ensureInitialized();
 		const state = this.getState();
-		const points: Array<{ x: number; y: number; channel: number; value: number }> = [];
+		const values: Array<[number, number, number, number]> = [];
 
-		// Copy existing state
+		// Copy existing state with brush contribution
 		for (let ch = 0; ch < state.channels.length; ch++) {
 			for (let py = 0; py < state.height; py++) {
 				for (let px = 0; px < state.width; px++) {
@@ -289,7 +292,7 @@ export class SimulationManager {
 					}
 
 					if (value > 0.001) {
-						points.push({ x: px, y: py, channel: ch, value });
+						values.push([px, py, ch, value]);
 					}
 				}
 			}
@@ -298,7 +301,7 @@ export class SimulationManager {
 		const customSeed: Seed = {
 			pattern: {
 				type: "Custom",
-				points,
+				values,
 			},
 		};
 
@@ -309,7 +312,7 @@ export class SimulationManager {
 	eraseAt(x: number, y: number, radius: number, channel = 0): void {
 		this.ensureInitialized();
 		const state = this.getState();
-		const points: Array<{ x: number; y: number; channel: number; value: number }> = [];
+		const values: Array<[number, number, number, number]> = [];
 
 		// Copy existing state, erasing within radius
 		for (let ch = 0; ch < state.channels.length; ch++) {
@@ -330,7 +333,7 @@ export class SimulationManager {
 					}
 
 					if (value > 0.001) {
-						points.push({ x: px, y: py, channel: ch, value });
+						values.push([px, py, ch, value]);
 					}
 				}
 			}
@@ -339,7 +342,7 @@ export class SimulationManager {
 		const customSeed: Seed = {
 			pattern: {
 				type: "Custom",
-				points,
+				values,
 			},
 		};
 
