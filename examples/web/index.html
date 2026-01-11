@@ -28,6 +28,7 @@
             gap: 10px;
             margin: 20px 0;
             flex-wrap: wrap;
+            align-items: center;
         }
 
         button {
@@ -49,9 +50,86 @@
             cursor: not-allowed;
         }
 
+        .backend-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+            padding: 8px 16px;
+            background: #2a2a2a;
+            border-radius: 4px;
+        }
+
+        .backend-toggle label {
+            font-size: 14px;
+            color: #888;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 60px;
+            height: 30px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #2196f3;
+            transition: 0.3s;
+            border-radius: 30px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: #4caf50;
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(30px);
+        }
+
+        .toggle-switch input:disabled + .toggle-slider {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        .backend-label {
+            font-weight: bold;
+            min-width: 40px;
+        }
+
+        .backend-label.cpu {
+            color: #2196f3;
+        }
+
+        .backend-label.gpu {
+            color: #4caf50;
+        }
+
         .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
             gap: 15px;
             margin: 20px 0;
         }
@@ -61,6 +139,10 @@
             padding: 15px;
             border-radius: 8px;
             border-left: 3px solid #4fc3f7;
+        }
+
+        .stat.backend-stat {
+            border-left-color: #4caf50;
         }
 
         .stat-label {
@@ -74,6 +156,14 @@
             font-weight: bold;
             color: #4fc3f7;
             margin-top: 5px;
+        }
+
+        .stat.backend-stat .stat-value {
+            color: #4caf50;
+        }
+
+        .stat.backend-stat .stat-value.cpu {
+            color: #2196f3;
         }
 
         canvas {
@@ -92,10 +182,30 @@
             margin: 20px 0;
         }
 
+        .warning {
+            background: #ff9800;
+            color: white;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+
         .loading {
             text-align: center;
             padding: 40px;
             color: #888;
+        }
+
+        .switching {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px 40px;
+            border-radius: 8px;
+            z-index: 100;
+            display: none;
         }
     </style>
 </head>
@@ -105,6 +215,8 @@
 
         <div id="loading" class="loading">Loading WebAssembly module...</div>
         <div id="error" class="error" style="display: none;"></div>
+        <div id="warning" class="warning" style="display: none;"></div>
+        <div id="switching" class="switching">Switching backend...</div>
 
         <div id="app" style="display: none;">
             <div class="controls">
@@ -114,9 +226,22 @@
                 <button id="resetBtn">Reset</button>
                 <button id="speedUpBtn">Speed Up</button>
                 <button id="slowDownBtn">Slow Down</button>
+
+                <div class="backend-toggle">
+                    <span class="backend-label cpu" id="cpuLabel">CPU</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="backendToggle">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="backend-label gpu" id="gpuLabel">GPU</span>
+                </div>
             </div>
 
             <div class="stats">
+                <div class="stat backend-stat">
+                    <div class="stat-label">Backend</div>
+                    <div class="stat-value cpu" id="backendDisplay">CPU</div>
+                </div>
                 <div class="stat">
                     <div class="stat-label">Step</div>
                     <div class="stat-value" id="stepCount">0</div>
@@ -144,7 +269,7 @@
     </div>
 
     <script type="module">
-        import init, { WasmPropagator } from '../../pkg/flow_lenia.js';
+        import init, { WasmPropagator, WasmGpuPropagator } from '../../pkg/flow_lenia.js';
 
         let propagator = null;
         let isPlaying = false;
@@ -152,6 +277,8 @@
         let stepsPerFrame = 1;
         let frameCount = 0;
         let fpsUpdateTime = 0;
+        let useGpu = false;
+        let gpuAvailable = false;
 
         // Configuration
         const config = {
@@ -193,6 +320,8 @@
         // UI elements
         const loading = document.getElementById('loading');
         const errorDiv = document.getElementById('error');
+        const warningDiv = document.getElementById('warning');
+        const switchingDiv = document.getElementById('switching');
         const app = document.getElementById('app');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
@@ -203,21 +332,61 @@
         const resetBtn = document.getElementById('resetBtn');
         const speedUpBtn = document.getElementById('speedUpBtn');
         const slowDownBtn = document.getElementById('slowDownBtn');
+        const backendToggle = document.getElementById('backendToggle');
+        const cpuLabel = document.getElementById('cpuLabel');
+        const gpuLabel = document.getElementById('gpuLabel');
 
         const stepCount = document.getElementById('stepCount');
         const simTime = document.getElementById('simTime');
         const totalMass = document.getElementById('totalMass');
         const fpsDisplay = document.getElementById('fps');
         const stepsPerFrameDisplay = document.getElementById('stepsPerFrame');
+        const backendDisplay = document.getElementById('backendDisplay');
+
+        // Check WebGPU availability
+        async function checkWebGPU() {
+            if (!navigator.gpu) {
+                return false;
+            }
+            try {
+                const adapter = await navigator.gpu.requestAdapter();
+                return adapter !== null;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        // Create propagator based on backend choice
+        async function createPropagator(useGpuBackend) {
+            const configJson = JSON.stringify(config);
+            const seedJson = JSON.stringify(seed);
+
+            if (useGpuBackend) {
+                // Async constructor returns a Promise
+                return await new WasmGpuPropagator(configJson, seedJson);
+            } else {
+                return new WasmPropagator(configJson, seedJson);
+            }
+        }
 
         // Initialize
         async function start() {
             try {
                 await init();
-                propagator = new WasmPropagator(
-                    JSON.stringify(config),
-                    JSON.stringify(seed)
-                );
+
+                // Check WebGPU availability
+                gpuAvailable = await checkWebGPU();
+                if (!gpuAvailable) {
+                    warningDiv.textContent = 'WebGPU not available in this browser. GPU backend disabled. Try Chrome 113+ or Edge 113+.';
+                    warningDiv.style.display = 'block';
+                    backendToggle.disabled = true;
+                    gpuLabel.style.color = '#555';
+                }
+
+                // Start with CPU backend
+                propagator = await createPropagator(false);
+                useGpu = false;
+                updateBackendDisplay();
 
                 loading.style.display = 'none';
                 app.style.display = 'block';
@@ -234,6 +403,16 @@
             errorDiv.textContent = `Error: ${e.message || e}`;
             errorDiv.style.display = 'block';
             console.error(e);
+        }
+
+        function updateBackendDisplay() {
+            backendDisplay.textContent = useGpu ? 'GPU' : 'CPU';
+            backendDisplay.className = 'stat-value ' + (useGpu ? 'gpu' : 'cpu');
+            if (!useGpu) {
+                backendDisplay.style.color = '#2196f3';
+            } else {
+                backendDisplay.style.color = '#4caf50';
+            }
         }
 
         function updateStats() {
@@ -265,10 +444,15 @@
             ctx.drawImage(canvas, 0, 0, width, height, 0, 0, canvas.width, canvas.height);
         }
 
-        function animate(currentTime) {
+        async function animate(currentTime) {
             if (!isPlaying) return;
 
-            propagator.run(BigInt(stepsPerFrame));
+            // GPU mode uses async methods, CPU mode is sync
+            if (useGpu) {
+                await propagator.run(BigInt(stepsPerFrame));
+            } else {
+                propagator.run(BigInt(stepsPerFrame));
+            }
             updateStats();
             render();
 
@@ -304,8 +488,13 @@
             pauseBtn.disabled = true;
         }
 
-        function step() {
-            propagator.step();
+        async function step() {
+            // GPU mode uses async step, CPU mode is sync
+            if (useGpu) {
+                await propagator.step();
+            } else {
+                propagator.step();
+            }
             updateStats();
             render();
         }
@@ -326,6 +515,44 @@
             updateStats();
         }
 
+        async function switchBackend() {
+            if (!gpuAvailable && backendToggle.checked) {
+                backendToggle.checked = false;
+                return;
+            }
+
+            const wasPlaying = isPlaying;
+            if (wasPlaying) {
+                pause();
+            }
+
+            switchingDiv.style.display = 'block';
+            backendToggle.disabled = true;
+
+            try {
+                const newUseGpu = backendToggle.checked;
+                propagator = await createPropagator(newUseGpu);
+                useGpu = newUseGpu;
+                updateBackendDisplay();
+                updateStats();
+                render();
+
+                if (wasPlaying) {
+                    play();
+                }
+            } catch (e) {
+                console.error('Failed to switch backend:', e);
+                // Revert toggle
+                backendToggle.checked = useGpu;
+                showError(e);
+            } finally {
+                switchingDiv.style.display = 'none';
+                if (gpuAvailable) {
+                    backendToggle.disabled = false;
+                }
+            }
+        }
+
         // Event listeners
         playBtn.addEventListener('click', play);
         pauseBtn.addEventListener('click', pause);
@@ -333,6 +560,7 @@
         resetBtn.addEventListener('click', reset);
         speedUpBtn.addEventListener('click', speedUp);
         slowDownBtn.addEventListener('click', slowDown);
+        backendToggle.addEventListener('change', switchBackend);
 
         // Start application
         start();
