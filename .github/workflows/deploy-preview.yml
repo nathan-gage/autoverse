@@ -94,15 +94,10 @@ jobs:
 
             const botComment = comments.data.find(comment =>
               comment.user.type === 'Bot' &&
-              comment.body.includes('Preview deployment')
+              comment.body.includes('preview is up')
             );
 
-            const body = `## 🚀 Preview deployment
-
-            Your changes have been deployed to:
-            **${previewUrl}**
-
-            _This preview will be automatically removed when the PR is closed._`;
+            const body = `preview is up: ${previewUrl}`;
 
             if (botComment) {
               await github.rest.issues.updateComment({
