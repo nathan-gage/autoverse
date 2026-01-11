@@ -48,5 +48,8 @@ pub mod schema;
 pub mod wasm;
 
 // Re-export commonly used types
+pub use compute::evolution::{EvolutionEngine, FitnessEvaluator, PatternArchive};
 pub use compute::{CpuPropagator, SimulationState, SimulationStats};
-pub use schema::{Pattern, Seed, SimulationConfig};
+pub use schema::{
+    EvolutionConfig, EvolutionProgress, EvolutionResult, Pattern, Seed, SimulationConfig,
+};

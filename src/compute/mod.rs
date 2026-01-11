@@ -11,6 +11,7 @@ mod param_advection;
 mod propagator;
 mod reintegration;
 
+pub mod evolution;
 pub mod gpu;
 
 pub use direct_convolution::*;
