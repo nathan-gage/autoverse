@@ -53,12 +53,94 @@ export const bestCandidateState = derived(evolutionStore, ($s) => $s.bestState);
 let wasmModule: WasmEvolutionModule | null = null;
 let engine: WasmEvolutionEngine | null = null;
 let animationFrameId: number | null = null;
+let bestStateTask: IdleTaskHandle | null = null;
+let resultTask: IdleTaskHandle | null = null;
+let lastBestStateUpdate = 0;
+const BEST_STATE_THROTTLE_MS = 750;
+
+type IdleTaskType = "idle" | "timeout";
+type IdleTaskHandle = { id: number; type: IdleTaskType };
 
 function parseWasmJson<T>(value: T | string): T {
 	if (typeof value === "string") {
 		return JSON.parse(value) as T;
 	}
 	return value;
+}
+
+function scheduleIdleTask(callback: () => void, timeoutMs = 0): IdleTaskHandle {
+	if ("requestIdleCallback" in window) {
+		const { requestIdleCallback } = window as Window & {
+			requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number;
+		};
+		return {
+			id: requestIdleCallback(callback, { timeout: timeoutMs }),
+			type: "idle",
+		};
+	}
+
+	return {
+		id: window.setTimeout(callback, timeoutMs),
+		type: "timeout",
+	};
+}
+
+function cancelIdleTask(task: IdleTaskHandle | null): void {
+	if (!task) return;
+	if (task.type === "idle" && "cancelIdleCallback" in window) {
+		const { cancelIdleCallback } = window as Window & {
+			cancelIdleCallback: (id: number) => void;
+		};
+		cancelIdleCallback(task.id);
+	} else {
+		clearTimeout(task.id);
+	}
+}
+
+function scheduleBestStateUpdate(): void {
+	if (!engine || bestStateTask) return;
+	const now = performance.now();
+	if (now - lastBestStateUpdate < BEST_STATE_THROTTLE_MS) {
+		return;
+	}
+	const currentEngine = engine;
+	bestStateTask = scheduleIdleTask(() => {
+		bestStateTask = null;
+		if (!engine || engine !== currentEngine) return;
+		try {
+			const bestState = parseWasmJson(engine.getBestCandidateState());
+			lastBestStateUpdate = performance.now();
+			evolutionStore.update((s) => ({
+				...s,
+				bestState,
+			}));
+		} catch (error) {
+			log(`Failed to update best candidate preview: ${error}`, "warn");
+		}
+	}, 200);
+}
+
+function scheduleResultUpdate(): void {
+	if (!engine || resultTask) return;
+	const currentEngine = engine;
+	resultTask = scheduleIdleTask(() => {
+		resultTask = null;
+		if (!engine || engine !== currentEngine) return;
+		try {
+			const result = parseWasmJson(engine.getResult());
+			evolutionStore.update((s) => ({
+				...s,
+				result,
+			}));
+			log(
+				`Evolution complete: fitness=${result.best_fitness.toFixed(3)}, reason=${result.stop_reason}`,
+				"success",
+			);
+		} catch (error) {
+			evolutionStore.update((s) => ({ ...s, error: String(error) }));
+			log(`Evolution error: ${error}`, "error");
+		}
+	}, 200);
 }
 
 export async function initializeEvolution(): Promise<void> {
@@ -138,6 +220,11 @@ export async function startEvolution(config: EvolutionConfig): Promise<void> {
 		if (engine) {
 			engine.free();
 		}
+		cancelIdleTask(bestStateTask);
+		cancelIdleTask(resultTask);
+		bestStateTask = null;
+		resultTask = null;
+		lastBestStateUpdate = 0;
 
 		engine = new wasmModule.WasmEvolutionEngine(JSON.stringify(config));
 		evolutionStore.update((s) => ({
@@ -165,27 +252,20 @@ function runEvolutionLoop(): void {
 
 	try {
 		const progress = parseWasmJson(engine.step());
-		const bestState = parseWasmJson(engine.getBestCandidateState());
 
 		evolutionStore.update((s) => ({
 			...s,
 			progress,
-			bestState,
 		}));
 
-		if (engine.isComplete()) {
-			const result = parseWasmJson(engine.getResult());
+		scheduleBestStateUpdate();
 
+		if (engine.isComplete()) {
 			evolutionStore.update((s) => ({
 				...s,
 				running: false,
-				result,
 			}));
-
-			log(
-				`Evolution complete: fitness=${result.best_fitness.toFixed(3)}, reason=${result.stop_reason}`,
-				"success",
-			);
+			scheduleResultUpdate();
 			return;
 		}
 
@@ -205,16 +285,15 @@ export function cancelEvolution(): void {
 		cancelAnimationFrame(animationFrameId);
 		animationFrameId = null;
 	}
+	cancelIdleTask(bestStateTask);
+	cancelIdleTask(resultTask);
+	bestStateTask = null;
+	resultTask = null;
 
 	const state = get(evolutionStore);
 	if (engine && state.running) {
 		engine.cancel();
-		try {
-			const result = parseWasmJson(engine.getResult());
-			evolutionStore.update((s) => ({ ...s, result }));
-		} catch {
-			// Ignore errors getting result after cancel
-		}
+		scheduleResultUpdate();
 		log("Evolution cancelled", "warn");
 	}
 
