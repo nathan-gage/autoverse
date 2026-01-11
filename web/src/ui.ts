@@ -3,7 +3,6 @@
 import { BUILTIN_PRESETS, type BuiltinPreset } from "./presets";
 import type {
 	BackendType,
-	CellParams,
 	InteractionMode,
 	Preset,
 	Seed,
@@ -41,7 +40,10 @@ export interface UICallbacks {
 	onBackendChange: (backend: BackendType) => void;
 	// Embedding callbacks
 	onEmbeddingToggle: (enabled: boolean) => void;
-	onEmbeddingConfigChange: (config: { mixing_temperature?: number; linear_mixing?: boolean }) => void;
+	onEmbeddingConfigChange: (config: {
+		mixing_temperature?: number;
+		linear_mixing?: boolean;
+	}) => void;
 	onSpeciesAdd: (species: SpeciesConfig) => void;
 	onSpeciesUpdate: (index: number, species: SpeciesConfig) => void;
 	onSpeciesDelete: (index: number) => void;
@@ -56,7 +58,6 @@ export class UI {
 	private stepsPerFrame = 1;
 	private hasSelection = false;
 	private speciesCount = 0;
-	private currentSpecies: SpeciesConfig[] = [];
 
 	constructor(container: HTMLElement, callbacks: UICallbacks) {
 		this.container = container;
@@ -357,9 +358,7 @@ export class UI {
 		// Visualization mode
 		const visualizationMode = this.get<HTMLSelectElement>("visualizationMode");
 		visualizationMode.addEventListener("change", () => {
-			this.callbacks.onVisualizationModeChange(
-				visualizationMode.value as VisualizationMode,
-			);
+			this.callbacks.onVisualizationModeChange(visualizationMode.value as VisualizationMode);
 		});
 
 		// Embedding controls
@@ -694,7 +693,7 @@ export class UI {
 
 			// Name change
 			el.querySelector(".species-name")?.addEventListener("change", (e) => {
-				const name = (e.target as HTMLInputElement).value;
+				const _name = (e.target as HTMLInputElement).value;
 				this.updateSpeciesFromUI(index);
 			});
 
@@ -710,9 +709,7 @@ export class UI {
 	}
 
 	private updateSpeciesFromUI(index: number): void {
-		const item = this.get("speciesList").querySelector(
-			`.species-item[data-index="${index}"]`,
-		);
+		const item = this.get("speciesList").querySelector(`.species-item[data-index="${index}"]`);
 		if (!item) return;
 
 		const name = (item.querySelector(".species-name") as HTMLInputElement).value;

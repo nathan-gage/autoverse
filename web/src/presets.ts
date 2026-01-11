@@ -285,7 +285,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
 			},
 			{
 				name: "Species B",
-				params: { mu: 0.20, sigma: 0.020, weight: 1.2, beta_a: 0.8, n: 3.0 },
+				params: { mu: 0.2, sigma: 0.02, weight: 1.2, beta_a: 0.8, n: 3.0 },
 				initial_region: [0.75, 0.5, 0.08],
 			},
 		],
@@ -317,7 +317,7 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
 			},
 			{
 				name: "Slow",
-				params: { mu: 0.20, sigma: 0.020, weight: 1.2, beta_a: 1.2, n: 3.0 },
+				params: { mu: 0.2, sigma: 0.02, weight: 1.2, beta_a: 1.2, n: 3.0 },
 				initial_region: [0.7, 0.7, 0.06],
 			},
 		],

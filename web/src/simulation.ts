@@ -63,11 +63,7 @@ interface WasmEmbeddedPropagator {
 
 interface WasmEmbeddedPropagatorConstructor {
 	new (configJson: string, seedJson: string): WasmEmbeddedPropagator;
-	newWithSpecies(
-		configJson: string,
-		seedJson: string,
-		speciesJson: string,
-	): WasmEmbeddedPropagator;
+	newWithSpecies(configJson: string, seedJson: string, speciesJson: string): WasmEmbeddedPropagator;
 }
 
 type Propagator = WasmPropagator | WasmGpuPropagator | WasmEmbeddedPropagator;
@@ -499,15 +495,13 @@ export class SimulationManager {
 		}
 	}
 
-	updateEmbeddingConfig(config: {
-		mixing_temperature?: number;
-		linear_mixing?: boolean;
-	}): void {
+	updateEmbeddingConfig(config: { mixing_temperature?: number; linear_mixing?: boolean }): void {
 		this.config = {
 			...this.config,
 			embedding: {
 				enabled: this.embeddedMode,
-				mixing_temperature: config.mixing_temperature ?? this.config.embedding?.mixing_temperature ?? 1.0,
+				mixing_temperature:
+					config.mixing_temperature ?? this.config.embedding?.mixing_temperature ?? 1.0,
 				linear_mixing: config.linear_mixing ?? this.config.embedding?.linear_mixing ?? false,
 			},
 		};

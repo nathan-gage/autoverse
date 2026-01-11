@@ -1,6 +1,7 @@
 // Flow Lenia Interactive Web Viewer - Main Entry Point
 
 import { InteractionHandler } from "./interaction";
+import type { BuiltinPreset } from "./presets";
 import { PresetManager } from "./presets";
 import { Renderer } from "./renderer";
 import { SimulationManager } from "./simulation";
@@ -14,7 +15,6 @@ import type {
 	ViewerSettings,
 	VisualizationMode,
 } from "./types";
-import type { BuiltinPreset } from "./presets";
 import { UI } from "./ui";
 
 // Default configuration
@@ -253,10 +253,7 @@ class FlowLeniaViewer {
 
 		// Get parameter field if in embedded mode and visualizing parameters
 		let paramField: number[] | null = null;
-		if (
-			this.simulation.isEmbeddedMode() &&
-			this.settings.visualizationMode !== "mass"
-		) {
+		if (this.simulation.isEmbeddedMode() && this.settings.visualizationMode !== "mass") {
 			paramField = this.simulation.getParamField(this.settings.visualizationMode);
 		}
 

@@ -65,8 +65,7 @@ export class Renderer {
 		const imageData = this.offscreenCtx.createImageData(width, height);
 
 		// Use parameter field if provided and visualization mode is not mass
-		const visualizingParams =
-			paramField && this.settings.visualizationMode !== "mass";
+		const visualizingParams = paramField && this.settings.visualizationMode !== "mass";
 		const data = visualizingParams ? paramField : channels[0];
 
 		// Determine normalization for the current field
