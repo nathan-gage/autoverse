@@ -53,9 +53,12 @@ export class SimulationManager {
 
 	async initialize(backend: BackendType = "cpu"): Promise<void> {
 		try {
-			// Use relative path so it works regardless of deployment location
-			const wasmUrl = new URL("./pkg/flow_lenia.js", import.meta.url).href;
-			this.wasmModule = (await import(/* webpackIgnore: true */ wasmUrl)) as WasmModule;
+			// Use Vite's BASE_URL to correctly resolve WASM path in all deployment contexts
+			const baseUrl = import.meta.env.BASE_URL || "/";
+			const wasmUrl = `${baseUrl}pkg/flow_lenia.js`;
+			this.wasmModule = (await import(
+				/* webpackIgnore: true */ /* @vite-ignore */ wasmUrl
+			)) as WasmModule;
 			await this.wasmModule.default();
 
 			// Check WebGPU availability

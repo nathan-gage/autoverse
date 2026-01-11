@@ -2,6 +2,12 @@
 
 import type { PresetRegion, SelectionRect, SimulationState, ViewerSettings } from "./types";
 
+export interface ThemeColors {
+	primary: string;
+	secondary: string;
+	tertiary: string;
+}
+
 export class Renderer {
 	private canvas: HTMLCanvasElement;
 	private ctx: CanvasRenderingContext2D;
@@ -13,6 +19,7 @@ export class Renderer {
 	private grayscaleMap: Uint8ClampedArray;
 	private thermalMap: Uint8ClampedArray;
 	private viridisMap: Uint8ClampedArray;
+	private themeMap: Uint8ClampedArray;
 
 	constructor(canvas: HTMLCanvasElement, settings: ViewerSettings) {
 		this.canvas = canvas;
@@ -32,6 +39,12 @@ export class Renderer {
 		this.grayscaleMap = this.buildGrayscaleMap();
 		this.thermalMap = this.buildThermalMap();
 		this.viridisMap = this.buildViridisMap();
+		// Default theme map (will be updated by setThemeColors)
+		this.themeMap = this.viridisMap;
+	}
+
+	setThemeColors(colors: ThemeColors): void {
+		this.themeMap = this.buildThemeMap(colors);
 	}
 
 	updateSettings(settings: Partial<ViewerSettings>): void {
@@ -231,6 +244,8 @@ export class Renderer {
 				return this.thermalMap;
 			case "viridis":
 				return this.viridisMap;
+			case "theme":
+				return this.themeMap;
 			default:
 				return this.grayscaleMap;
 		}
@@ -327,5 +342,55 @@ export class Renderer {
 
 	getCanvas(): HTMLCanvasElement {
 		return this.canvas;
+	}
+
+	private buildThemeMap(colors: ThemeColors): Uint8ClampedArray {
+		// Parse hex colors to RGB
+		const parseHex = (hex: string): [number, number, number] => {
+			const h = hex.replace("#", "");
+			return [
+				parseInt(h.slice(0, 2), 16),
+				parseInt(h.slice(2, 4), 16),
+				parseInt(h.slice(4, 6), 16),
+			];
+		};
+
+		const primary = parseHex(colors.primary);
+		const secondary = parseHex(colors.secondary);
+		const tertiary = parseHex(colors.tertiary);
+
+		// Gradient: black → primary dim → primary → secondary → tertiary
+		const stops: Array<{ t: number; color: [number, number, number] }> = [
+			{ t: 0.0, color: [5, 5, 5] }, // Near black (void)
+			{ t: 0.15, color: [primary[0] * 0.3, primary[1] * 0.3, primary[2] * 0.3] },
+			{ t: 0.35, color: primary },
+			{ t: 0.6, color: secondary },
+			{ t: 0.85, color: tertiary },
+			{ t: 1.0, color: [255, 255, 255] }, // White hot
+		];
+
+		const map = new Uint8ClampedArray(256 * 4);
+		for (let i = 0; i < 256; i++) {
+			const t = i / 255;
+
+			// Find the two stops we're between
+			let low = stops[0];
+			let high = stops[1];
+			for (let s = 1; s < stops.length; s++) {
+				if (t <= stops[s].t) {
+					low = stops[s - 1];
+					high = stops[s];
+					break;
+				}
+			}
+
+			// Interpolate between stops
+			const frac = (t - low.t) / (high.t - low.t);
+			map[i * 4 + 0] = Math.floor(low.color[0] + frac * (high.color[0] - low.color[0]));
+			map[i * 4 + 1] = Math.floor(low.color[1] + frac * (high.color[1] - low.color[1]));
+			map[i * 4 + 2] = Math.floor(low.color[2] + frac * (high.color[2] - low.color[2]));
+			map[i * 4 + 3] = 255;
+		}
+		return map;
 	}
 }

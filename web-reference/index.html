@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LENIA::PROTOCOL</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=VT323&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --color-void: #050505;
+        --color-cyan: #00ffff;
+        --color-magenta: #ff00ff;
+        --color-green: #39ff14;
+        --color-dim: #1a1a1a;
+      }
+      
+      body {
+        background-color: var(--color-void);
+        color: var(--color-cyan);
+        font-family: 'IBM Plex Mono', monospace;
+        overflow: hidden;
+        margin: 0;
+        height: 100vh;
+        width: 100vw;
+      }
+
+      /* Scrollbars */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #000;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #333; 
+        border: 1px solid var(--color-cyan);
+      }
+
+      /* CRT Scanline Effect */
+      .scanlines {
+        background: linear-gradient(
+          to bottom,
+          rgba(255,255,255,0),
+          rgba(255,255,255,0) 50%,
+          rgba(0,0,0,0.2) 50%,
+          rgba(0,0,0,0.2)
+        );
+        background-size: 100% 4px;
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 50;
+        pointer-events: none;
+        animation: scrollScanlines 10s linear infinite;
+      }
+      
+      .vignette {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: radial-gradient(circle, rgba(0,0,0,0) 60%, rgba(0,0,0,0.6) 100%);
+        z-index: 51;
+        pointer-events: none;
+      }
+
+      @keyframes scrollScanlines {
+        0% { background-position: 0 0; }
+        100% { background-position: 0 100%; }
+      }
+
+      /* Text Glitch */
+      .glitch-text {
+        position: relative;
+      }
+      .glitch-text::before,
+      .glitch-text::after {
+        content: attr(data-text);
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--color-void);
+      }
+      .glitch-text::before {
+        left: 2px;
+        text-shadow: -1px 0 var(--color-magenta);
+        clip: rect(24px, 550px, 90px, 0);
+        animation: glitch-anim-2 3s infinite linear alternate-reverse;
+      }
+      .glitch-text::after {
+        left: -2px;
+        text-shadow: -1px 0 var(--color-green);
+        clip: rect(85px, 550px, 140px, 0);
+        animation: glitch-anim 2.5s infinite linear alternate-reverse;
+      }
+
+      @keyframes glitch-anim {
+        0% { clip: rect(10px, 9999px, 31px, 0); }
+        20% { clip: rect(76px, 9999px, 92px, 0); }
+        40% { clip: rect(24px, 9999px, 56px, 0); }
+        60% { clip: rect(62px, 9999px, 12px, 0); }
+        80% { clip: rect(86px, 9999px, 34px, 0); }
+        100% { clip: rect(5px, 9999px, 72px, 0); }
+      }
+      @keyframes glitch-anim-2 {
+        0% { clip: rect(29px, 9999px, 86px, 0); }
+        20% { clip: rect(4px, 9999px, 19px, 0); }
+        40% { clip: rect(98px, 9999px, 21px, 0); }
+        60% { clip: rect(12px, 9999px, 54px, 0); }
+        80% { clip: rect(66px, 9999px, 33px, 0); }
+        100% { clip: rect(1px, 9999px, 91px, 0); }
+      }
+
+      /* Pulse Animation */
+      .pulse-slow {
+        animation: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+
+      /* Range Slider Styling */
+      input[type=range] {
+        -webkit-appearance: none;
+        width: 100%;
+        background: transparent;
+      }
+      input[type=range]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        height: 16px;
+        width: 16px;
+        background: var(--color-void);
+        border: 2px solid var(--color-cyan);
+        margin-top: -6px;
+        cursor: pointer;
+        box-shadow: 0 0 5px var(--color-cyan);
+      }
+      input[type=range]::-webkit-slider-runnable-track {
+        width: 100%;
+        height: 4px;
+        cursor: pointer;
+        background: #333;
+        border: 1px solid #555;
+      }
+      input[type=range]:focus {
+        outline: none;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>
