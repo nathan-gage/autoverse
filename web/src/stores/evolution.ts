@@ -1,12 +1,12 @@
 // Evolution state store - wraps WASM evolution engine with reactive Svelte state
-import { get, writable, derived } from "svelte/store";
+import { derived, get, writable } from "svelte/store";
 import type {
 	BestCandidateState,
 	EvolutionConfig,
 	EvolutionProgress,
 	EvolutionResult,
 } from "../types";
-import { simulationStore, pause, reset, log } from "./simulation";
+import { log, pause, reset, simulationStore } from "./simulation";
 
 // WASM module types for evolution
 interface WasmEvolutionModule {
