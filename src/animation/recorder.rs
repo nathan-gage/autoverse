@@ -60,6 +60,15 @@ impl AnimationRecorder {
         sim_config: &SimulationConfig,
         config: RecorderConfig,
     ) -> io::Result<Self> {
+        // Validate LZ4 compression is only used when the feature is enabled
+        #[cfg(not(feature = "lz4"))]
+        if config.compression == CompressionType::Lz4 {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "LZ4 compression requested but 'lz4' feature is not enabled. Build with --features lz4",
+            ));
+        }
+
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
 
@@ -173,9 +182,8 @@ impl AnimationRecorder {
         // Flush and close
         self.writer.flush()?;
 
-        let total_size = index_offset
-            + (self.frame_indices.len() as u64 * FrameIndex::SIZE as u64)
-            + AnimationHeader::SIZE as u64;
+        // index_offset already includes header size (it's the absolute file position)
+        let total_size = index_offset + (self.frame_indices.len() as u64 * FrameIndex::SIZE as u64);
 
         Ok(AnimationStats {
             frame_count: self.frames_written,
