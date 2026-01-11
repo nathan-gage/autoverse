@@ -10,10 +10,35 @@
       "Bash(cargo test:*)",
       "Bash(cargo fmt:*)",
       "Bash(cargo build:*)",
-      "Bash(cargo clippy:*)",
       "Bash(cargo bench:*)",
+      "Bash(cargo clippy:*)",
       "Bash(wasm-pack build:*)",
-      "Bash(wasm-pack test:*)"
+      "Bash(wasm-pack test:*)",
+      "Bash(just fmt-wgsl:*)",
+      "Bash(just check-wgsl:*)",
+      "Bash(just lint-wgsl:*)",
+      "Bash(just check-shaders:*)",
+      "Bash(just pre-push:*)",
+      "Bash(wgslfmt:*)",
+      "Bash(naga:*)"
     ]
+  },
+  "extraKnownMarketplaces": {
+    "autoverse-local": {
+      "source": {
+        "source": "directory",
+        "path": "./plugins/autoverse-tools"
+      }
+    },
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-code"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "autoverse-tools@autoverse-local": true,
+    "rust-analyzer-lsp@claude-plugins-official": true
   }
 }

@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Nathan Gage <contact@nathangage.co>"]
 description = "Flow Lenia - Mass conservative continuous cellular automata"
 license = "MIT"
-rust-version = "1.85"
+rust-version = "1.92"
 
 [lib]
 name = "flow_lenia"
@@ -21,10 +21,15 @@ default = ["native"]
 native = []  # Marks native build
 wasm = []    # Marks WASM build
 dhat-heap = ["dhat"]  # Heap profiling
+gpu = []     # Marks GPU compute backend
 
 [dependencies]
 # FFT for fast convolution (WASM-compatible)
 rustfft = "6.2"
+
+# GPU compute (WebGPU/wgpu)
+wgpu = "28"
+bytemuck = { version = "1.21", features = ["derive"] }
 
 # Serialization for config/state
 serde = { version = "1.0", features = ["derive"] }
@@ -49,6 +54,9 @@ rayon = "1.10"
 # Native-only: Logging backend
 env_logger = "0.11"
 
+# Native-only: Async runtime for GPU
+pollster = "0.4"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # WASM-specific: JavaScript bindings
 wasm-bindgen = "0.2"
@@ -58,8 +66,14 @@ serde-wasm-bindgen = "0.6"
 console_error_panic_hook = "0.1"
 wasm-logger = "0.2"
 
+# WASM-specific: Async for GPU
+wasm-bindgen-futures = "0.4"
+futures-channel = "0.3"
+
 [dev-dependencies]
 criterion = "0.5"
+proptest = "1.6"
+wasm-bindgen-test = "0.3"
 
 [profile.release]
 lto = true

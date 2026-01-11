@@ -30,6 +30,17 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rust-analyzer
+
+      - name: Install wgsl-analyzer
+        run: |
+          curl -L https://github.com/wgsl-analyzer/wgsl-analyzer/releases/latest/download/wgsl-analyzer-x86_64-unknown-linux-gnu.gz | gunzip > wgsl_analyzer
+          chmod +x wgsl_analyzer
+          sudo mv wgsl_analyzer /usr/local/bin/
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1

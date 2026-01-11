@@ -1,0 +1,8 @@
+{
+  "wgsl-analyzer": {
+    "command": "wgsl_analyzer",
+    "extensionToLanguage": {
+      ".wgsl": "wgsl"
+    }
+  }
+}
