@@ -130,6 +130,8 @@ class FlowLeniaViewer {
 					} else {
 						this.ui.updateSelection(false);
 					}
+					// Re-render to show selection rectangle
+					this.render();
 				},
 				onSelectionComplete: (_selection) => {
 					// Selection is complete, user can now save it
