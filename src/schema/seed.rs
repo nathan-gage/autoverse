@@ -156,13 +156,13 @@ fn apply_gaussian(
     let width = grid[channel][0].len();
     let sigma_sq = (radius / 2.0).powi(2);
 
-    for y in 0..height {
-        for x in 0..width {
+    for (y, row) in grid[channel].iter_mut().enumerate().take(height) {
+        for (x, cell) in row.iter_mut().enumerate().take(width) {
             let dx = x as f32 - cx;
             let dy = y as f32 - cy;
             let dist_sq = dx * dx + dy * dy;
             let value = amplitude * (-dist_sq / (2.0 * sigma_sq)).exp();
-            grid[channel][y][x] += value;
+            *cell += value;
         }
     }
 }
@@ -192,9 +192,9 @@ fn apply_noise(
         if c >= grid.len() {
             continue;
         }
-        for y in 0..height {
-            for x in 0..width {
-                grid[c][y][x] += amplitude * lcg_next(&mut state);
+        for row in grid[c].iter_mut().take(height) {
+            for cell in row.iter_mut().take(width) {
+                *cell += amplitude * lcg_next(&mut state);
             }
         }
     }
@@ -215,8 +215,8 @@ fn apply_ring(
     let height = grid[channel].len();
     let width = grid[channel][0].len();
 
-    for y in 0..height {
-        for x in 0..width {
+    for (y, row) in grid[channel].iter_mut().enumerate().take(height) {
+        for (x, cell) in row.iter_mut().enumerate().take(width) {
             let dx = x as f32 - cx;
             let dy = y as f32 - cy;
             let dist = (dx * dx + dy * dy).sqrt();
@@ -226,7 +226,7 @@ fn apply_ring(
                 let inner_falloff = ((dist - inner_radius) / edge_width).min(1.0);
                 let outer_falloff = ((outer_radius - dist) / edge_width).min(1.0);
                 let falloff = inner_falloff.min(outer_falloff);
-                grid[channel][y][x] += amplitude * falloff;
+                *cell += amplitude * falloff;
             }
         }
     }

@@ -64,6 +64,7 @@ pub fn compute_flow_field(
 /// Compute flow field into pre-allocated buffers.
 /// This is the allocation-free version for use with pre-allocated buffers.
 #[inline]
+#[allow(clippy::too_many_arguments)]
 pub fn compute_flow_field_into(
     grad_u_x: &[f32],
     grad_u_y: &[f32],

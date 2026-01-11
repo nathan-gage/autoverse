@@ -189,6 +189,7 @@ pub struct FrequencyKernel {
 
 impl FrequencyKernel {
     /// Create frequency-domain kernel from spatial kernel.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_spatial(
         kernel_data: &[f32],
         width: usize,
