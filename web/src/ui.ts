@@ -619,7 +619,6 @@ export class UI {
 	}
 
 	renderSpecies(species: SpeciesConfig[]): void {
-		this.currentSpecies = species;
 		this.speciesCount = species.length;
 		const container = this.get("speciesList");
 
