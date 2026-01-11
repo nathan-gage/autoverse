@@ -146,6 +146,16 @@ class FlowLeniaViewer {
 					this.simulation.eraseAt(x, y, this.settings.brushSize);
 					this.render();
 				},
+				onModeChange: (mode) => {
+					// Sync UI buttons when mode changes via keyboard shortcuts
+					// Use updateModeDisplay to avoid triggering callback loop
+					this.ui.updateModeDisplay(mode);
+				},
+				onBrushSizeChange: (size) => {
+					// Sync UI slider when brush size changes via keyboard shortcuts
+					this.settings.brushSize = size;
+					this.ui.updateBrushSize(size);
+				},
 			});
 
 			// Subscribe to preset changes

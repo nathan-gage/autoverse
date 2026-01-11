@@ -338,8 +338,8 @@ export class UI {
 		});
 	}
 
-	setMode(mode: InteractionMode): void {
-		// Update button states
+	// Update UI display only, without triggering callback (used when syncing from InteractionHandler)
+	updateModeDisplay(mode: InteractionMode): void {
 		const buttons = {
 			view: this.get("viewModeBtn"),
 			select: this.get("selectModeBtn"),
@@ -354,7 +354,11 @@ export class UI {
 		// Show/hide brush settings
 		const brushSettings = this.get("brushSettings");
 		brushSettings.classList.toggle("hidden", mode !== "draw" && mode !== "erase");
+	}
 
+	// Called by UI button clicks - updates display and notifies main
+	setMode(mode: InteractionMode): void {
+		this.updateModeDisplay(mode);
 		this.callbacks.onModeChange(mode);
 	}
 
@@ -472,5 +476,12 @@ export class UI {
 		toggle.checked = backend === "gpu";
 		cpuLabel.classList.toggle("active", backend === "cpu");
 		gpuLabel.classList.toggle("active", backend === "gpu");
+	}
+
+	updateBrushSize(size: number): void {
+		const slider = this.get<HTMLInputElement>("brushSizeSlider");
+		const label = this.get("brushSizeValue");
+		slider.value = size.toString();
+		label.textContent = size.toString();
 	}
 }
