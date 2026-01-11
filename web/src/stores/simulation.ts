@@ -172,8 +172,14 @@ async function animate(currentTime: number): Promise<void> {
 	const current = get(simulationStore);
 	if (!current.playing || !manager) return;
 
-	const frameTime = currentTime - lastFrameTime;
+	let frameTime = currentTime - lastFrameTime;
 	lastFrameTime = currentTime;
+
+	const maxFrameTime = 250;
+	if (frameTime > maxFrameTime) {
+		frameTime = maxFrameTime;
+		stepRemainder = 0;
+	}
 
 	const targetSteps = (stepsPerSecond * frameTime) / 1000 + stepRemainder;
 	const stepsToRun = Math.floor(targetSteps);
