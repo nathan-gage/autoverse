@@ -4,6 +4,7 @@
 //! that discover interesting Flow Lenia patterns (gliders, oscillators, solitons).
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::{FlowConfig, KernelConfig, Pattern, RingConfig, Seed, SimulationConfig};
 
@@ -372,36 +373,14 @@ pub enum FitnessMetric {
     },
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-enum FitnessMetricTagged {
-    Persistence,
-    Compactness,
-    Locomotion,
-    Periodicity { period: u64, tolerance: f32 },
-    Complexity,
-    MassConcentration,
-    GliderScore { min_displacement: f32 },
-    OscillatorScore { max_period: u64, threshold: f32 },
-    Stability,
-    Custom { name: String },
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum FitnessMetricRepr {
-    String(String),
-    Tagged(FitnessMetricTagged),
-}
-
 impl<'de> Deserialize<'de> for FitnessMetric {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let repr = FitnessMetricRepr::deserialize(deserializer)?;
-        match repr {
-            FitnessMetricRepr::String(value) => match value.as_str() {
+        let value = Value::deserialize(deserializer)?;
+        match value {
+            Value::String(value) => match value.as_str() {
                 "Persistence" => Ok(FitnessMetric::Persistence),
                 "Compactness" => Ok(FitnessMetric::Compactness),
                 "Locomotion" => Ok(FitnessMetric::Locomotion),
@@ -412,28 +391,51 @@ impl<'de> Deserialize<'de> for FitnessMetric {
                     "Unknown fitness metric string: {other}"
                 ))),
             },
-            FitnessMetricRepr::Tagged(tagged) => Ok(match tagged {
-                FitnessMetricTagged::Persistence => FitnessMetric::Persistence,
-                FitnessMetricTagged::Compactness => FitnessMetric::Compactness,
-                FitnessMetricTagged::Locomotion => FitnessMetric::Locomotion,
-                FitnessMetricTagged::Periodicity { period, tolerance } => {
-                    FitnessMetric::Periodicity { period, tolerance }
+            Value::Object(map) => {
+                #[derive(Deserialize)]
+                #[serde(tag = "type")]
+                enum FitnessMetricTagged {
+                    Persistence,
+                    Compactness,
+                    Locomotion,
+                    Periodicity { period: u64, tolerance: f32 },
+                    Complexity,
+                    MassConcentration,
+                    GliderScore { min_displacement: f32 },
+                    OscillatorScore { max_period: u64, threshold: f32 },
+                    Stability,
+                    Custom { name: String },
                 }
-                FitnessMetricTagged::Complexity => FitnessMetric::Complexity,
-                FitnessMetricTagged::MassConcentration => FitnessMetric::MassConcentration,
-                FitnessMetricTagged::GliderScore { min_displacement } => {
-                    FitnessMetric::GliderScore { min_displacement }
-                }
-                FitnessMetricTagged::OscillatorScore {
-                    max_period,
-                    threshold,
-                } => FitnessMetric::OscillatorScore {
-                    max_period,
-                    threshold,
-                },
-                FitnessMetricTagged::Stability => FitnessMetric::Stability,
-                FitnessMetricTagged::Custom { name } => FitnessMetric::Custom { name },
-            }),
+
+                let tagged: FitnessMetricTagged =
+                    serde_json::from_value(Value::Object(map))
+                        .map_err(serde::de::Error::custom)?;
+                Ok(match tagged {
+                    FitnessMetricTagged::Persistence => FitnessMetric::Persistence,
+                    FitnessMetricTagged::Compactness => FitnessMetric::Compactness,
+                    FitnessMetricTagged::Locomotion => FitnessMetric::Locomotion,
+                    FitnessMetricTagged::Periodicity { period, tolerance } => {
+                        FitnessMetric::Periodicity { period, tolerance }
+                    }
+                    FitnessMetricTagged::Complexity => FitnessMetric::Complexity,
+                    FitnessMetricTagged::MassConcentration => FitnessMetric::MassConcentration,
+                    FitnessMetricTagged::GliderScore { min_displacement } => {
+                        FitnessMetric::GliderScore { min_displacement }
+                    }
+                    FitnessMetricTagged::OscillatorScore {
+                        max_period,
+                        threshold,
+                    } => FitnessMetric::OscillatorScore {
+                        max_period,
+                        threshold,
+                    },
+                    FitnessMetricTagged::Stability => FitnessMetric::Stability,
+                    FitnessMetricTagged::Custom { name } => FitnessMetric::Custom { name },
+                })
+            }
+            other => Err(serde::de::Error::custom(format!(
+                "Invalid fitness metric format: {other}"
+            ))),
         }
     }
 }
