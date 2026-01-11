@@ -2,8 +2,76 @@
 //!
 //! Uses rustfft for O(N log N) convolution instead of O(N * K^2) direct convolution.
 
+use std::sync::Arc;
+
 use num_complex::Complex;
-use rustfft::FftPlanner;
+use rustfft::{Fft, FftPlanner};
+
+/// Block size for cache-friendly transpose operations.
+/// 32×32 blocks fit well in L1 cache (32×32×8 bytes = 8KB for Complex<f32>).
+const TRANSPOSE_BLOCK_SIZE: usize = 32;
+
+/// Pre-allocated scratch buffers for FFT operations.
+/// Each thread/parallel task should have its own FftScratch to avoid allocation.
+pub struct FftScratch {
+    /// Scratch for row FFT
+    pub row_scratch: Vec<Complex<f32>>,
+    /// Scratch for column FFT (used for transposed rows)
+    pub col_scratch: Vec<Complex<f32>>,
+    /// Transpose buffer for cache-friendly column FFT
+    pub transpose_buffer: Vec<Complex<f32>>,
+    /// Input frequency buffer
+    pub input_freq: Vec<Complex<f32>>,
+    /// Result frequency buffer
+    pub result_freq: Vec<Complex<f32>>,
+}
+
+impl FftScratch {
+    /// Create new scratch buffers sized for the given convolver.
+    pub fn new(convolver: &CachedConvolver) -> Self {
+        let row_scratch_len = convolver.fft_row.get_inplace_scratch_len();
+        let col_scratch_len = convolver.fft_col.get_inplace_scratch_len();
+        let ifft_row_scratch_len = convolver.ifft_row.get_inplace_scratch_len();
+        let ifft_col_scratch_len = convolver.ifft_col.get_inplace_scratch_len();
+
+        // Use max of forward/inverse scratch requirements
+        let max_row_scratch = row_scratch_len.max(ifft_row_scratch_len);
+        let max_col_scratch = col_scratch_len.max(ifft_col_scratch_len);
+
+        let grid_size = convolver.width * convolver.height;
+
+        Self {
+            row_scratch: vec![Complex::new(0.0, 0.0); max_row_scratch],
+            col_scratch: vec![Complex::new(0.0, 0.0); max_col_scratch],
+            transpose_buffer: vec![Complex::new(0.0, 0.0); grid_size],
+            input_freq: vec![Complex::new(0.0, 0.0); grid_size],
+            result_freq: vec![Complex::new(0.0, 0.0); grid_size],
+        }
+    }
+}
+
+/// Transpose a matrix from src to dst using cache-friendly block algorithm.
+/// src is width×height (row-major), dst becomes height×width (row-major).
+#[inline]
+fn transpose_blocked(src: &[Complex<f32>], dst: &mut [Complex<f32>], width: usize, height: usize) {
+    // Process in blocks for cache efficiency
+    for block_y in (0..height).step_by(TRANSPOSE_BLOCK_SIZE) {
+        let block_y_end = (block_y + TRANSPOSE_BLOCK_SIZE).min(height);
+        for block_x in (0..width).step_by(TRANSPOSE_BLOCK_SIZE) {
+            let block_x_end = (block_x + TRANSPOSE_BLOCK_SIZE).min(width);
+
+            // Transpose this block
+            for y in block_y..block_y_end {
+                for x in block_x..block_x_end {
+                    // src[y][x] -> dst[x][y]
+                    // src index: y * width + x
+                    // dst index: x * height + y
+                    dst[x * height + y] = src[y * width + x];
+                }
+            }
+        }
+    }
+}
 
 /// FFT convolution engine with cached plans.
 pub struct FftConvolver {
@@ -145,20 +213,36 @@ impl FrequencyKernel {
     }
 }
 
-/// Optimized convolver with precomputed frequency-domain kernels.
+/// Optimized convolver with precomputed frequency-domain kernels and cached FFT plans.
 pub struct CachedConvolver {
     width: usize,
     height: usize,
     kernels: Vec<FrequencyKernel>,
+    // Cached FFT plans (expensive to create, reuse across convolutions)
+    fft_row: Arc<dyn Fft<f32>>,
+    fft_col: Arc<dyn Fft<f32>>,
+    ifft_row: Arc<dyn Fft<f32>>,
+    ifft_col: Arc<dyn Fft<f32>>,
 }
 
 impl CachedConvolver {
-    /// Create convolver with precomputed kernels.
+    /// Create convolver with precomputed kernels and cached FFT plans.
     pub fn new(width: usize, height: usize, kernels: Vec<FrequencyKernel>) -> Self {
+        // Pre-compute FFT plans once (this is the expensive part we're caching)
+        let mut planner = FftPlanner::new();
+        let fft_row = planner.plan_fft_forward(width);
+        let fft_col = planner.plan_fft_forward(height);
+        let ifft_row = planner.plan_fft_inverse(width);
+        let ifft_col = planner.plan_fft_inverse(height);
+
         Self {
             width,
             height,
             kernels,
+            fft_row,
+            fft_col,
+            ifft_row,
+            ifft_col,
         }
     }
 
@@ -167,10 +251,22 @@ impl CachedConvolver {
         &self.kernels
     }
 
+    /// Get grid width.
+    #[inline]
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Get grid height.
+    #[inline]
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
     /// Convolve input with precomputed kernel at given index.
+    /// Uses cached FFT plans for efficiency.
     pub fn convolve_with_kernel(&self, input: &[f32], kernel_idx: usize) -> Vec<f32> {
-        let mut convolver = FftConvolver::new(self.width, self.height);
-        let input_freq = convolver.fft2d(input);
+        let input_freq = self.fft2d_cached(input);
 
         let kernel = &self.kernels[kernel_idx];
 
@@ -181,18 +277,187 @@ impl CachedConvolver {
             .map(|(a, b)| a * b)
             .collect();
 
-        convolver.ifft2d(&mut result_freq)
+        self.ifft2d_cached(&mut result_freq)
+    }
+
+    /// Convolve input with precomputed kernel using scratch buffers.
+    /// Avoids allocation by using pre-allocated scratch space.
+    /// Uses matrix transpose for cache-friendly column FFT operations.
+    #[inline]
+    pub fn convolve_with_kernel_scratch(
+        &self,
+        input: &[f32],
+        kernel_idx: usize,
+        scratch: &mut FftScratch,
+        output: &mut [f32],
+    ) {
+        // Forward FFT into scratch.input_freq using transpose for column FFT
+        self.fft2d_transpose(
+            input,
+            &mut scratch.input_freq,
+            &mut scratch.transpose_buffer,
+            &mut scratch.row_scratch,
+            &mut scratch.col_scratch,
+        );
+
+        let kernel = &self.kernels[kernel_idx];
+
+        // Pointwise multiplication into scratch.result_freq
+        for (i, (inp, k)) in scratch
+            .input_freq
+            .iter()
+            .zip(kernel.data.iter())
+            .enumerate()
+        {
+            scratch.result_freq[i] = inp * k;
+        }
+
+        // Inverse FFT into output using transpose for column IFFT
+        self.ifft2d_transpose(
+            &mut scratch.result_freq,
+            output,
+            &mut scratch.transpose_buffer,
+            &mut scratch.row_scratch,
+            &mut scratch.col_scratch,
+        );
+    }
+
+    /// Perform 2D FFT using matrix transpose for cache-friendly column access.
+    /// Algorithm: row FFT -> transpose -> row FFT (on transposed = column FFT) -> transpose back
+    #[inline]
+    fn fft2d_transpose(
+        &self,
+        input: &[f32],
+        output: &mut [Complex<f32>],
+        transpose_buf: &mut [Complex<f32>],
+        row_scratch: &mut [Complex<f32>],
+        col_scratch: &mut [Complex<f32>],
+    ) {
+        // Convert input to complex
+        for (i, &x) in input.iter().enumerate() {
+            output[i] = Complex::new(x, 0.0);
+        }
+
+        // Row-wise FFT (width rows of length width)
+        for row in output.chunks_exact_mut(self.width) {
+            self.fft_row.process_with_scratch(row, row_scratch);
+        }
+
+        // Transpose: output (height×width) -> transpose_buf (width×height)
+        // After transpose, what were columns are now rows
+        transpose_blocked(output, transpose_buf, self.width, self.height);
+
+        // Row-wise FFT on transposed data (this is column FFT on original)
+        // transpose_buf has width rows of length height
+        for row in transpose_buf.chunks_exact_mut(self.height) {
+            self.fft_col.process_with_scratch(row, col_scratch);
+        }
+
+        // Transpose back: transpose_buf (width×height) -> output (height×width)
+        transpose_blocked(transpose_buf, output, self.height, self.width);
+    }
+
+    /// Perform inverse 2D FFT using matrix transpose for cache-friendly column access.
+    /// Algorithm: transpose -> row IFFT (= column IFFT) -> transpose back -> row IFFT
+    #[inline]
+    fn ifft2d_transpose(
+        &self,
+        freq_data: &mut [Complex<f32>],
+        output: &mut [f32],
+        transpose_buf: &mut [Complex<f32>],
+        row_scratch: &mut [Complex<f32>],
+        col_scratch: &mut [Complex<f32>],
+    ) {
+        // Transpose: freq_data (height×width) -> transpose_buf (width×height)
+        transpose_blocked(freq_data, transpose_buf, self.width, self.height);
+
+        // Row-wise IFFT on transposed data (this is column IFFT on original)
+        for row in transpose_buf.chunks_exact_mut(self.height) {
+            self.ifft_col.process_with_scratch(row, col_scratch);
+        }
+
+        // Transpose back: transpose_buf (width×height) -> freq_data (height×width)
+        transpose_blocked(transpose_buf, freq_data, self.height, self.width);
+
+        // Row-wise IFFT
+        for row in freq_data.chunks_exact_mut(self.width) {
+            self.ifft_row.process_with_scratch(row, row_scratch);
+        }
+
+        // Normalize and extract real part
+        let scale = 1.0 / (self.width * self.height) as f32;
+        for (i, c) in freq_data.iter().enumerate() {
+            output[i] = c.re * scale;
+        }
+    }
+
+    /// Perform 2D FFT using cached plans.
+    fn fft2d_cached(&self, input: &[f32]) -> Vec<Complex<f32>> {
+        let mut data: Vec<Complex<f32>> = input.iter().map(|&x| Complex::new(x, 0.0)).collect();
+
+        // Row-wise FFT using cached plan
+        for row in data.chunks_exact_mut(self.width) {
+            self.fft_row.process(row);
+        }
+
+        // Column-wise FFT
+        let mut col_buffer = vec![Complex::new(0.0, 0.0); self.height];
+        for x in 0..self.width {
+            // Extract column
+            for y in 0..self.height {
+                col_buffer[y] = data[y * self.width + x];
+            }
+
+            // FFT column using cached plan
+            self.fft_col.process(&mut col_buffer);
+
+            // Write back
+            for y in 0..self.height {
+                data[y * self.width + x] = col_buffer[y];
+            }
+        }
+
+        data
+    }
+
+    /// Perform inverse 2D FFT using cached plans.
+    fn ifft2d_cached(&self, input: &mut [Complex<f32>]) -> Vec<f32> {
+        // Column-wise IFFT
+        let mut col_buffer = vec![Complex::new(0.0, 0.0); self.height];
+        for x in 0..self.width {
+            // Extract column
+            for y in 0..self.height {
+                col_buffer[y] = input[y * self.width + x];
+            }
+
+            // IFFT column using cached plan
+            self.ifft_col.process(&mut col_buffer);
+
+            // Write back
+            for y in 0..self.height {
+                input[y * self.width + x] = col_buffer[y];
+            }
+        }
+
+        // Row-wise IFFT using cached plan
+        for row in input.chunks_exact_mut(self.width) {
+            self.ifft_row.process(row);
+        }
+
+        // Normalize and extract real part
+        let scale = 1.0 / (self.width * self.height) as f32;
+        input.iter().map(|c| c.re * scale).collect()
     }
 
     /// Convolve input grid with all kernels for a given source channel.
     /// Returns vector of (target_channel, weight, mu, sigma, convolution_result).
+    /// Uses cached FFT plans for efficiency.
     pub fn convolve_channel(
         &self,
         input: &[f32],
         source_channel: usize,
     ) -> Vec<(usize, f32, f32, f32, Vec<f32>)> {
-        let mut convolver = FftConvolver::new(self.width, self.height);
-        let input_freq = convolver.fft2d(input);
+        let input_freq = self.fft2d_cached(input);
 
         self.kernels
             .iter()
@@ -205,8 +470,7 @@ impl CachedConvolver {
                     .map(|(a, b)| a * b)
                     .collect();
 
-                let mut conv = FftConvolver::new(self.width, self.height);
-                let result = conv.ifft2d(&mut result_freq);
+                let result = self.ifft2d_cached(&mut result_freq);
 
                 (
                     kernel.target_channel,

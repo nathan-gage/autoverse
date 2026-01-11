@@ -10,7 +10,7 @@ use flow_lenia::{
 fn bench_propagator_step(c: &mut Criterion) {
     let mut group = c.benchmark_group("propagator_step");
 
-    for size in [64, 128, 256] {
+    for size in [64, 128, 256, 512, 1024] {
         let config = SimulationConfig {
             width: size,
             height: size,

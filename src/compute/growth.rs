@@ -40,6 +40,7 @@ pub fn growth_grid(grid: &[f32], mu: f32, sigma: f32) -> Vec<f32> {
 }
 
 /// Apply growth function and weight, accumulating into target buffer.
+#[inline]
 pub fn growth_accumulate(
     convolution: &[f32],
     target: &mut [f32],
