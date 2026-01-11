@@ -137,6 +137,8 @@ export class UI {
         </main>
 
         <aside class="sidebar right-sidebar">
+          <div id="evolutionPanelContainer"></div>
+
           <div class="panel">
             <h3>Selection</h3>
             <div id="selectionInfo" class="selection-info">

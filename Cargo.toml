@@ -102,6 +102,10 @@ harness = false
 [profile.ci]
 inherits = "dev"
 debug = "line-tables-only"
+
+# wasm-pack configuration
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
 split-debuginfo = "unpacked"
 
 [profile.ci.package."*"]

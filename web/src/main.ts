@@ -1,11 +1,15 @@
 // Flow Lenia Interactive Web Viewer - Main Entry Point
 
+import { EvolutionManager } from "./evolution";
+import { EvolutionPanel } from "./evolution-panel";
 import { InteractionHandler } from "./interaction";
 import { PresetManager } from "./presets";
 import { Renderer } from "./renderer";
 import { SimulationManager } from "./simulation";
 import type {
 	BackendType,
+	BestCandidateState,
+	EvolutionConfig,
 	InteractionMode,
 	Preset,
 	Seed,
@@ -54,6 +58,8 @@ class FlowLeniaViewer {
 	private renderer!: Renderer;
 	private interaction!: InteractionHandler;
 	private presetManager: PresetManager;
+	private evolutionManager: EvolutionManager;
+	private evolutionPanel!: EvolutionPanel;
 	private ui!: UI;
 
 	private settings: ViewerSettings = {
@@ -73,10 +79,12 @@ class FlowLeniaViewer {
 	private currentFps = 0;
 	private lastFrameTime = 0;
 	private stepAccumulator = 0;
+	private lastEvolutionState: BestCandidateState | null = null;
 
 	constructor() {
 		this.simulation = new SimulationManager(DEFAULT_CONFIG, DEFAULT_SEED);
 		this.presetManager = new PresetManager();
+		this.evolutionManager = new EvolutionManager(DEFAULT_CONFIG);
 	}
 
 	async initialize(): Promise<void> {
@@ -171,6 +179,29 @@ class FlowLeniaViewer {
 			this.ui.setGpuAvailable(this.simulation.isGpuAvailable());
 			this.ui.updateBackend(this.simulation.getBackend());
 			this.settings.backend = this.simulation.getBackend();
+
+			// Initialize evolution manager and panel
+			await this.evolutionManager.initialize();
+			const evolutionContainer = document.getElementById("evolutionPanelContainer");
+			if (evolutionContainer) {
+				this.evolutionPanel = new EvolutionPanel(
+					evolutionContainer,
+					{
+						onStart: (config) => this.startEvolution(config),
+						onCancel: () => this.cancelEvolution(),
+						onLoadBest: () => this.loadBestCandidate(),
+					},
+					this.evolutionManager,
+					DEFAULT_CONFIG,
+				);
+
+				// Subscribe to evolution state updates for loading
+				this.evolutionManager.subscribe((event) => {
+					if (event.type === "stateUpdate" && event.state) {
+						this.lastEvolutionState = event.state;
+					}
+				});
+			}
 
 			// Initial render
 			this.ui.renderPresets(this.presetManager.getAllPresets());
@@ -348,6 +379,60 @@ class FlowLeniaViewer {
 		} catch (error) {
 			alert(`Failed to import presets: ${error}`);
 		}
+	}
+
+	// Evolution methods
+	private async startEvolution(config: EvolutionConfig): Promise<void> {
+		// Pause main simulation while evolution runs
+		if (this.isPlaying) {
+			this.pause();
+			this.ui.setPlaying(false);
+		}
+
+		try {
+			await this.evolutionManager.start(config);
+		} catch (error) {
+			console.error("Failed to start evolution:", error);
+		}
+	}
+
+	private cancelEvolution(): void {
+		this.evolutionManager.cancel();
+	}
+
+	private loadBestCandidate(): void {
+		if (!this.lastEvolutionState) {
+			console.warn("No evolution state to load");
+			return;
+		}
+
+		const { width, height, data } = this.lastEvolutionState;
+
+		// Convert the evolution state to a Custom seed pattern
+		const values: Array<[number, number, number, number]> = [];
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const idx = y * width + x;
+				const value = data[idx];
+				if (value > 0.001) {
+					values.push([x, y, 0, value]);
+				}
+			}
+		}
+
+		const customSeed: Seed = {
+			pattern: {
+				type: "Custom",
+				values,
+			},
+		};
+
+		// Reset simulation with the evolved pattern
+		this.simulation.reset(customSeed);
+		this.render();
+		this.updateStats();
+
+		console.log("Loaded best evolved candidate into simulation");
 	}
 }
 
