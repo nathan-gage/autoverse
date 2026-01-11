@@ -1,6 +1,12 @@
 // Canvas Renderer with color schemes and overlays
 
-import type { PresetRegion, SelectionRect, SimulationState, ViewerSettings } from "./types";
+import type {
+	PresetRegion,
+	SelectionRect,
+	SimulationState,
+	ViewerSettings,
+	VisualizationMode,
+} from "./types";
 
 export class Renderer {
 	private canvas: HTMLCanvasElement;
@@ -42,6 +48,7 @@ export class Renderer {
 		state: SimulationState,
 		selection?: SelectionRect | null,
 		ghostPreview?: { region: PresetRegion; x: number; y: number } | null,
+		paramField?: number[] | null,
 	): void {
 		const { width, height, channels } = state;
 
@@ -54,12 +61,24 @@ export class Renderer {
 		// Get the appropriate color map
 		const colorMap = this.getColorMap();
 
-		// Render simulation data
+		// Render simulation data or parameter field
 		const imageData = this.offscreenCtx.createImageData(width, height);
-		const data = channels[0]; // Primary channel
+
+		// Use parameter field if provided and visualization mode is not mass
+		const visualizingParams =
+			paramField && this.settings.visualizationMode !== "mass";
+		const data = visualizingParams ? paramField : channels[0];
+
+		// Determine normalization for the current field
+		const { min, max } = visualizingParams
+			? this.getParamFieldRange(this.settings.visualizationMode)
+			: { min: 0, max: 1 };
 
 		for (let i = 0; i < data.length; i++) {
-			const value = Math.max(0, Math.min(1, data[i]));
+			// Normalize value to [0, 1] range
+			const rawValue = data[i];
+			const normalizedValue = max > min ? (rawValue - min) / (max - min) : 0;
+			const value = Math.max(0, Math.min(1, normalizedValue));
 			const colorIndex = Math.floor(value * 255) * 4;
 
 			imageData.data[i * 4 + 0] = colorMap[colorIndex + 0];
@@ -233,6 +252,24 @@ export class Renderer {
 				return this.viridisMap;
 			default:
 				return this.grayscaleMap;
+		}
+	}
+
+	private getParamFieldRange(mode: VisualizationMode): { min: number; max: number } {
+		// Define expected ranges for each parameter type
+		switch (mode) {
+			case "mu":
+				return { min: 0, max: 0.5 };
+			case "sigma":
+				return { min: 0, max: 0.1 };
+			case "weight":
+				return { min: 0, max: 3 };
+			case "beta_a":
+				return { min: 0, max: 3 };
+			case "n":
+				return { min: 0, max: 5 };
+			default:
+				return { min: 0, max: 1 };
 		}
 	}
 

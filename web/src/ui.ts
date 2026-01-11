@@ -1,7 +1,16 @@
 // UI Components - Controls, panels, and preset library
 
-import { BUILTIN_PRESETS } from "./presets";
-import type { BackendType, InteractionMode, Preset, Seed, ViewerSettings } from "./types";
+import { BUILTIN_PRESETS, type BuiltinPreset } from "./presets";
+import type {
+	BackendType,
+	CellParams,
+	InteractionMode,
+	Preset,
+	Seed,
+	SpeciesConfig,
+	ViewerSettings,
+	VisualizationMode,
+} from "./types";
 
 // Escape HTML to prevent XSS attacks from imported presets
 function escapeHtml(str: string): string {
@@ -30,6 +39,14 @@ export interface UICallbacks {
 	onBrushSizeChange: (size: number) => void;
 	onBrushIntensityChange: (intensity: number) => void;
 	onBackendChange: (backend: BackendType) => void;
+	// Embedding callbacks
+	onEmbeddingToggle: (enabled: boolean) => void;
+	onEmbeddingConfigChange: (config: { mixing_temperature?: number; linear_mixing?: boolean }) => void;
+	onSpeciesAdd: (species: SpeciesConfig) => void;
+	onSpeciesUpdate: (index: number, species: SpeciesConfig) => void;
+	onSpeciesDelete: (index: number) => void;
+	onVisualizationModeChange: (mode: VisualizationMode) => void;
+	onBuiltinPresetSelect: (preset: BuiltinPreset) => void;
 }
 
 export class UI {
@@ -38,6 +55,8 @@ export class UI {
 	private isPlaying = false;
 	private stepsPerFrame = 1;
 	private hasSelection = false;
+	private speciesCount = 0;
+	private currentSpecies: SpeciesConfig[] = [];
 
 	constructor(container: HTMLElement, callbacks: UICallbacks) {
 		this.container = container;
@@ -111,9 +130,42 @@ export class UI {
               </select>
             </div>
             <div class="setting-row">
+              <label>Visualization</label>
+              <select id="visualizationMode">
+                <option value="mass">Mass (Default)</option>
+                <option value="mu" disabled>Mu - Growth Center</option>
+                <option value="sigma" disabled>Sigma - Growth Width</option>
+                <option value="weight" disabled>Weight</option>
+                <option value="beta_a" disabled>Beta_a - Critical Mass</option>
+                <option value="n" disabled>n - Power Param</option>
+              </select>
+            </div>
+            <div class="setting-row">
               <label>
                 <input type="checkbox" id="showGrid"> Show Grid
               </label>
+            </div>
+          </div>
+
+          <div class="panel" id="embeddingPanel">
+            <h3>Parameter Embedding</h3>
+            <div class="setting-row">
+              <label>
+                <input type="checkbox" id="embeddingEnabled"> Enable Multi-Species
+              </label>
+            </div>
+            <div id="embeddingSettings" class="embedding-settings hidden">
+              <div class="setting-row">
+                <label>Mixing Strategy</label>
+                <select id="mixingStrategy">
+                  <option value="softmax">Softmax (Default)</option>
+                  <option value="linear">Linear</option>
+                </select>
+              </div>
+              <div class="setting-row" id="temperatureRow">
+                <label>Temperature: <span id="temperatureValue">1.0</span></label>
+                <input type="range" id="temperatureSlider" min="0.1" max="5.0" step="0.1" value="1.0">
+              </div>
             </div>
           </div>
         </aside>
@@ -137,6 +189,14 @@ export class UI {
         </main>
 
         <aside class="sidebar right-sidebar">
+          <div class="panel hidden" id="speciesPanel">
+            <h3>Species Configuration</h3>
+            <div id="speciesList" class="species-list">
+              <!-- Species items will be rendered here -->
+            </div>
+            <button id="addSpeciesBtn" class="btn btn-primary btn-sm">+ Add Species</button>
+          </div>
+
           <div class="panel">
             <h3>Selection</h3>
             <div id="selectionInfo" class="selection-info">
@@ -294,6 +354,60 @@ export class UI {
 			this.callbacks.onBackendChange(backend);
 		});
 
+		// Visualization mode
+		const visualizationMode = this.get<HTMLSelectElement>("visualizationMode");
+		visualizationMode.addEventListener("change", () => {
+			this.callbacks.onVisualizationModeChange(
+				visualizationMode.value as VisualizationMode,
+			);
+		});
+
+		// Embedding controls
+		const embeddingEnabled = this.get<HTMLInputElement>("embeddingEnabled");
+		const embeddingSettings = this.get("embeddingSettings");
+		const mixingStrategy = this.get<HTMLSelectElement>("mixingStrategy");
+		const temperatureSlider = this.get<HTMLInputElement>("temperatureSlider");
+		const temperatureRow = this.get("temperatureRow");
+		const speciesPanel = this.get("speciesPanel");
+
+		embeddingEnabled.addEventListener("change", () => {
+			const enabled = embeddingEnabled.checked;
+			embeddingSettings.classList.toggle("hidden", !enabled);
+			speciesPanel.classList.toggle("hidden", !enabled);
+			this.updateVisualizationModeOptions(enabled);
+			this.callbacks.onEmbeddingToggle(enabled);
+		});
+
+		mixingStrategy.addEventListener("change", () => {
+			const isLinear = mixingStrategy.value === "linear";
+			temperatureRow.classList.toggle("hidden", isLinear);
+			this.callbacks.onEmbeddingConfigChange({ linear_mixing: isLinear });
+		});
+
+		temperatureSlider.addEventListener("input", () => {
+			const temp = parseFloat(temperatureSlider.value);
+			this.get("temperatureValue").textContent = temp.toFixed(1);
+			this.callbacks.onEmbeddingConfigChange({ mixing_temperature: temp });
+		});
+
+		// Add species button
+		const addSpeciesBtn = this.get<HTMLButtonElement>("addSpeciesBtn");
+		addSpeciesBtn.addEventListener("click", () => {
+			const newSpecies: SpeciesConfig = {
+				name: `Species ${this.speciesCount + 1}`,
+				params: {
+					mu: 0.15,
+					sigma: 0.015,
+					weight: 1.0,
+					beta_a: 1.0,
+					n: 2.0,
+				},
+				initial_region: [0.5, 0.5, 0.1],
+			};
+			this.speciesCount++;
+			this.callbacks.onSpeciesAdd(newSpecies);
+		});
+
 		// Keyboard shortcuts
 		document.addEventListener("keydown", (e) => {
 			// Ignore if typing in input
@@ -321,7 +435,7 @@ export class UI {
 		container.innerHTML = BUILTIN_PRESETS.map(
 			(pattern) => `
       <div class="builtin-pattern" data-name="${pattern.name}">
-        <span class="pattern-name">${pattern.name}</span>
+        <span class="pattern-name">${pattern.name}${pattern.embeddingEnabled ? " ★" : ""}</span>
         <span class="pattern-desc">${pattern.description}</span>
       </div>
     `,
@@ -332,7 +446,8 @@ export class UI {
 				const name = el.getAttribute("data-name")!;
 				const pattern = BUILTIN_PRESETS.find((p) => p.name === name);
 				if (pattern) {
-					this.callbacks.onReset(pattern.seed as Seed);
+					// Use the new callback for proper multi-species handling
+					this.callbacks.onBuiltinPresetSelect(pattern);
 				}
 			});
 		});
@@ -483,5 +598,155 @@ export class UI {
 		const label = this.get("brushSizeValue");
 		slider.value = size.toString();
 		label.textContent = size.toString();
+	}
+
+	// ============================================================================
+	// Embedding UI Methods
+	// ============================================================================
+
+	private updateVisualizationModeOptions(embeddingEnabled: boolean): void {
+		const select = this.get<HTMLSelectElement>("visualizationMode");
+		const options = select.querySelectorAll("option");
+		options.forEach((option) => {
+			if (option.value !== "mass") {
+				(option as HTMLOptionElement).disabled = !embeddingEnabled;
+			}
+		});
+		// Reset to mass if currently on a param field and embedding is disabled
+		if (!embeddingEnabled && select.value !== "mass") {
+			select.value = "mass";
+			this.callbacks.onVisualizationModeChange("mass");
+		}
+	}
+
+	renderSpecies(species: SpeciesConfig[]): void {
+		this.currentSpecies = species;
+		this.speciesCount = species.length;
+		const container = this.get("speciesList");
+
+		if (species.length === 0) {
+			container.innerHTML = '<p class="muted">No species defined</p>';
+			return;
+		}
+
+		container.innerHTML = species
+			.map(
+				(s, index) => `
+			<div class="species-item" data-index="${index}">
+				<div class="species-header">
+					<input type="text" class="species-name" value="${escapeHtml(s.name)}" maxlength="20">
+					<button class="btn btn-sm btn-danger delete-species" title="Delete">x</button>
+				</div>
+				<div class="species-params">
+					<div class="param-row">
+						<label>mu</label>
+						<input type="number" class="param-input param-mu" step="0.01" min="0" max="1" value="${s.params.mu}">
+					</div>
+					<div class="param-row">
+						<label>sigma</label>
+						<input type="number" class="param-input param-sigma" step="0.001" min="0" max="0.1" value="${s.params.sigma}">
+					</div>
+					<div class="param-row">
+						<label>weight</label>
+						<input type="number" class="param-input param-weight" step="0.1" min="0" max="10" value="${s.params.weight}">
+					</div>
+					<div class="param-row">
+						<label>beta_a</label>
+						<input type="number" class="param-input param-beta-a" step="0.1" min="0" max="10" value="${s.params.beta_a}">
+					</div>
+					<div class="param-row">
+						<label>n</label>
+						<input type="number" class="param-input param-n" step="0.1" min="0" max="10" value="${s.params.n}">
+					</div>
+				</div>
+				<div class="species-region">
+					<details>
+						<summary>Initial Region</summary>
+						<div class="region-params">
+							<div class="param-row">
+								<label>Center X</label>
+								<input type="number" class="region-cx" step="0.05" min="0" max="1" value="${s.initial_region?.[0] ?? 0.5}">
+							</div>
+							<div class="param-row">
+								<label>Center Y</label>
+								<input type="number" class="region-cy" step="0.05" min="0" max="1" value="${s.initial_region?.[1] ?? 0.5}">
+							</div>
+							<div class="param-row">
+								<label>Radius</label>
+								<input type="number" class="region-radius" step="0.01" min="0" max="0.5" value="${s.initial_region?.[2] ?? 0.1}">
+							</div>
+						</div>
+					</details>
+				</div>
+			</div>
+		`,
+			)
+			.join("");
+
+		// Set up event listeners for each species item
+		container.querySelectorAll(".species-item").forEach((el) => {
+			const index = parseInt(el.getAttribute("data-index")!, 10);
+
+			// Delete button
+			el.querySelector(".delete-species")?.addEventListener("click", () => {
+				this.callbacks.onSpeciesDelete(index);
+			});
+
+			// Name change
+			el.querySelector(".species-name")?.addEventListener("change", (e) => {
+				const name = (e.target as HTMLInputElement).value;
+				this.updateSpeciesFromUI(index);
+			});
+
+			// Parameter changes
+			el.querySelectorAll(".param-input, .region-cx, .region-cy, .region-radius").forEach(
+				(input) => {
+					input.addEventListener("change", () => {
+						this.updateSpeciesFromUI(index);
+					});
+				},
+			);
+		});
+	}
+
+	private updateSpeciesFromUI(index: number): void {
+		const item = this.get("speciesList").querySelector(
+			`.species-item[data-index="${index}"]`,
+		);
+		if (!item) return;
+
+		const name = (item.querySelector(".species-name") as HTMLInputElement).value;
+		const mu = parseFloat((item.querySelector(".param-mu") as HTMLInputElement).value);
+		const sigma = parseFloat((item.querySelector(".param-sigma") as HTMLInputElement).value);
+		const weight = parseFloat((item.querySelector(".param-weight") as HTMLInputElement).value);
+		const beta_a = parseFloat((item.querySelector(".param-beta-a") as HTMLInputElement).value);
+		const n = parseFloat((item.querySelector(".param-n") as HTMLInputElement).value);
+		const cx = parseFloat((item.querySelector(".region-cx") as HTMLInputElement).value);
+		const cy = parseFloat((item.querySelector(".region-cy") as HTMLInputElement).value);
+		const radius = parseFloat((item.querySelector(".region-radius") as HTMLInputElement).value);
+
+		const species: SpeciesConfig = {
+			name,
+			params: { mu, sigma, weight, beta_a, n },
+			initial_region: [cx, cy, radius],
+		};
+
+		this.callbacks.onSpeciesUpdate(index, species);
+	}
+
+	setEmbeddingEnabled(enabled: boolean): void {
+		const checkbox = this.get<HTMLInputElement>("embeddingEnabled");
+		const settings = this.get("embeddingSettings");
+		const speciesPanel = this.get("speciesPanel");
+
+		checkbox.checked = enabled;
+		settings.classList.toggle("hidden", !enabled);
+		speciesPanel.classList.toggle("hidden", !enabled);
+		this.updateVisualizationModeOptions(enabled);
+	}
+
+	setVisualizationMode(mode: VisualizationMode): void {
+		const select = this.get<HTMLSelectElement>("visualizationMode");
+		select.value = mode;
 	}
 }

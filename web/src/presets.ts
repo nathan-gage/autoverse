@@ -200,8 +200,18 @@ export class PresetManager {
 	}
 }
 
+import type { SpeciesConfig } from "./types";
+
 // Built-in preset patterns
-export const BUILTIN_PRESETS: Array<{ name: string; description: string; seed: object }> = [
+export interface BuiltinPreset {
+	name: string;
+	description: string;
+	seed: object;
+	species?: SpeciesConfig[];
+	embeddingEnabled?: boolean;
+}
+
+export const BUILTIN_PRESETS: BuiltinPreset[] = [
 	{
 		name: "Glider",
 		description: "A simple glider that moves across the grid",
@@ -253,5 +263,63 @@ export const BUILTIN_PRESETS: Array<{ name: string; description: string; seed: o
 				channel: 0,
 			},
 		},
+	},
+	{
+		name: "Multi-Species",
+		description: "Two species with different parameters",
+		embeddingEnabled: true,
+		seed: {
+			pattern: {
+				type: "MultiBlob",
+				blobs: [
+					{ center: [0.25, 0.5], radius: 0.08, amplitude: 1.0, channel: 0 },
+					{ center: [0.75, 0.5], radius: 0.08, amplitude: 1.0, channel: 0 },
+				],
+			},
+		},
+		species: [
+			{
+				name: "Species A",
+				params: { mu: 0.15, sigma: 0.015, weight: 1.0, beta_a: 1.0, n: 2.0 },
+				initial_region: [0.25, 0.5, 0.08],
+			},
+			{
+				name: "Species B",
+				params: { mu: 0.20, sigma: 0.020, weight: 1.2, beta_a: 0.8, n: 3.0 },
+				initial_region: [0.75, 0.5, 0.08],
+			},
+		],
+	},
+	{
+		name: "Three Species",
+		description: "Three species in triangular arrangement",
+		embeddingEnabled: true,
+		seed: {
+			pattern: {
+				type: "MultiBlob",
+				blobs: [
+					{ center: [0.5, 0.25], radius: 0.06, amplitude: 1.0, channel: 0 },
+					{ center: [0.3, 0.7], radius: 0.06, amplitude: 1.0, channel: 0 },
+					{ center: [0.7, 0.7], radius: 0.06, amplitude: 1.0, channel: 0 },
+				],
+			},
+		},
+		species: [
+			{
+				name: "Fast",
+				params: { mu: 0.12, sigma: 0.012, weight: 1.0, beta_a: 0.8, n: 2.0 },
+				initial_region: [0.5, 0.25, 0.06],
+			},
+			{
+				name: "Medium",
+				params: { mu: 0.15, sigma: 0.015, weight: 1.0, beta_a: 1.0, n: 2.5 },
+				initial_region: [0.3, 0.7, 0.06],
+			},
+			{
+				name: "Slow",
+				params: { mu: 0.20, sigma: 0.020, weight: 1.2, beta_a: 1.2, n: 3.0 },
+				initial_region: [0.7, 0.7, 0.06],
+			},
+		],
 	},
 ];

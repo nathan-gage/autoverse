@@ -1,5 +1,33 @@
 // Flow Lenia Viewer Type Definitions
 
+// ============================================================================
+// Parameter Embedding Types
+// ============================================================================
+
+export interface EmbeddingConfig {
+	enabled: boolean;
+	mixing_temperature: number;
+	linear_mixing: boolean;
+}
+
+export interface CellParams {
+	mu: number;
+	sigma: number;
+	weight: number;
+	beta_a: number;
+	n: number;
+}
+
+export interface SpeciesConfig {
+	name: string;
+	params: CellParams;
+	initial_region?: [number, number, number]; // [center_x, center_y, radius]
+}
+
+// ============================================================================
+// Simulation Configuration
+// ============================================================================
+
 export interface SimulationConfig {
 	width: number;
 	height: number;
@@ -8,6 +36,7 @@ export interface SimulationConfig {
 	kernel_radius: number;
 	kernels: KernelConfig[];
 	flow: FlowConfig;
+	embedding?: EmbeddingConfig;
 }
 
 export interface KernelConfig {
@@ -125,6 +154,8 @@ export type InteractionMode = "view" | "select" | "draw" | "erase";
 
 export type BackendType = "cpu" | "gpu";
 
+export type VisualizationMode = "mass" | "mu" | "sigma" | "weight" | "beta_a" | "n";
+
 export interface ViewerSettings {
 	colorScheme: "grayscale" | "thermal" | "viridis";
 	showGrid: boolean;
@@ -132,4 +163,15 @@ export interface ViewerSettings {
 	brushSize: number;
 	brushIntensity: number;
 	backend: BackendType;
+	visualizationMode: VisualizationMode;
+}
+
+export interface EmbeddedSimulationState extends SimulationState {
+	paramFields?: {
+		mu: number[];
+		sigma: number[];
+		weight: number[];
+		beta_a: number[];
+		n: number[];
+	};
 }

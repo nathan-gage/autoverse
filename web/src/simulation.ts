@@ -1,12 +1,22 @@
 // Simulation Manager - WASM wrapper with enhanced state management
 
-import type { BackendType, PresetRegion, Seed, SimulationConfig, SimulationState } from "./types";
+import type {
+	BackendType,
+	EmbeddedSimulationState,
+	PresetRegion,
+	Seed,
+	SimulationConfig,
+	SimulationState,
+	SpeciesConfig,
+	VisualizationMode,
+} from "./types";
 
 // WASM module types
 interface WasmModule {
 	default: () => Promise<void>;
 	WasmPropagator: new (configJson: string, seedJson: string) => WasmPropagator;
 	WasmGpuPropagator: new (configJson: string, seedJson: string) => Promise<WasmGpuPropagator>;
+	WasmEmbeddedPropagator: WasmEmbeddedPropagatorConstructor;
 }
 
 interface WasmPropagator {
@@ -35,7 +45,32 @@ interface WasmGpuPropagator {
 	getHeight(): number;
 }
 
-type Propagator = WasmPropagator | WasmGpuPropagator;
+interface WasmEmbeddedPropagator {
+	step(): void;
+	run(steps: bigint): void;
+	getState(): SimulationState;
+	getStateWithParams(): EmbeddedSimulationState;
+	getParamField(field: string, channel: number): number[];
+	isEmbedded(): boolean;
+	reset(seedJson: string): void;
+	resetWithSpecies(seedJson: string, speciesJson: string): void;
+	totalMass(): number;
+	getTime(): number;
+	getStep(): number;
+	getWidth(): number;
+	getHeight(): number;
+}
+
+interface WasmEmbeddedPropagatorConstructor {
+	new (configJson: string, seedJson: string): WasmEmbeddedPropagator;
+	newWithSpecies(
+		configJson: string,
+		seedJson: string,
+		speciesJson: string,
+	): WasmEmbeddedPropagator;
+}
+
+type Propagator = WasmPropagator | WasmGpuPropagator | WasmEmbeddedPropagator;
 
 export class SimulationManager {
 	private propagator: Propagator | null = null;
@@ -45,10 +80,14 @@ export class SimulationManager {
 	private wasmModule: WasmModule | null = null;
 	private currentBackend: BackendType = "cpu";
 	private gpuAvailable = false;
+	private embeddedMode = false;
+	private species: SpeciesConfig[] = [];
 
 	constructor(config: SimulationConfig, seed: Seed) {
 		this.config = config;
 		this.currentSeed = seed;
+		// Check if embedding is enabled in config
+		this.embeddedMode = config.embedding?.enabled ?? false;
 	}
 
 	async initialize(backend: BackendType = "cpu"): Promise<void> {
@@ -91,7 +130,20 @@ export class SimulationManager {
 		const configJson = JSON.stringify(this.config);
 		const seedJson = JSON.stringify(this.currentSeed);
 
-		if (backend === "gpu" && this.gpuAvailable) {
+		// Use embedded propagator if embedding is enabled
+		if (this.embeddedMode) {
+			if (this.species.length > 0) {
+				const speciesJson = JSON.stringify(this.species);
+				this.propagator = this.wasmModule.WasmEmbeddedPropagator.newWithSpecies(
+					configJson,
+					seedJson,
+					speciesJson,
+				);
+			} else {
+				this.propagator = new this.wasmModule.WasmEmbeddedPropagator(configJson, seedJson);
+			}
+			this.currentBackend = "cpu"; // Embedded mode is CPU only for now
+		} else if (backend === "gpu" && this.gpuAvailable) {
 			// GPU propagator constructor returns a Promise
 			this.propagator = await new this.wasmModule.WasmGpuPropagator(configJson, seedJson);
 			this.currentBackend = "gpu";
@@ -354,5 +406,118 @@ export class SimulationManager {
 		if (!this.isInitialized || !this.propagator) {
 			throw new Error("Simulation not initialized. Call initialize() first.");
 		}
+	}
+
+	// ============================================================================
+	// Embedded Mode Methods
+	// ============================================================================
+
+	isEmbeddedMode(): boolean {
+		return this.embeddedMode;
+	}
+
+	async setEmbeddedMode(enabled: boolean): Promise<void> {
+		if (this.embeddedMode === enabled) return;
+
+		this.embeddedMode = enabled;
+		this.config = {
+			...this.config,
+			embedding: {
+				enabled,
+				mixing_temperature: this.config.embedding?.mixing_temperature ?? 1.0,
+				linear_mixing: this.config.embedding?.linear_mixing ?? false,
+			},
+		};
+
+		if (this.isInitialized) {
+			await this.createPropagator(this.currentBackend);
+		}
+	}
+
+	setSpecies(species: SpeciesConfig[]): void {
+		this.species = species;
+	}
+
+	getSpecies(): SpeciesConfig[] {
+		return [...this.species];
+	}
+
+	addSpecies(species: SpeciesConfig): void {
+		this.species.push(species);
+	}
+
+	removeSpecies(index: number): void {
+		if (index >= 0 && index < this.species.length) {
+			this.species.splice(index, 1);
+		}
+	}
+
+	updateSpecies(index: number, species: SpeciesConfig): void {
+		if (index >= 0 && index < this.species.length) {
+			this.species[index] = species;
+		}
+	}
+
+	async resetWithSpecies(seed?: Seed): Promise<void> {
+		this.ensureInitialized();
+		if (seed) {
+			this.currentSeed = seed;
+		}
+
+		if (this.embeddedMode && this.species.length > 0) {
+			const seedJson = JSON.stringify(this.currentSeed);
+			const speciesJson = JSON.stringify(this.species);
+			(this.propagator as WasmEmbeddedPropagator).resetWithSpecies(seedJson, speciesJson);
+		} else {
+			this.propagator!.reset(JSON.stringify(this.currentSeed));
+		}
+	}
+
+	getParamField(field: VisualizationMode, channel = 0): number[] | null {
+		if (!this.embeddedMode || field === "mass") {
+			return null;
+		}
+
+		this.ensureInitialized();
+		try {
+			return (this.propagator as WasmEmbeddedPropagator).getParamField(field, channel);
+		} catch {
+			return null;
+		}
+	}
+
+	getEmbeddedState(): EmbeddedSimulationState | null {
+		if (!this.embeddedMode) {
+			return null;
+		}
+
+		this.ensureInitialized();
+		try {
+			return (this.propagator as WasmEmbeddedPropagator).getStateWithParams();
+		} catch {
+			return null;
+		}
+	}
+
+	updateEmbeddingConfig(config: {
+		mixing_temperature?: number;
+		linear_mixing?: boolean;
+	}): void {
+		this.config = {
+			...this.config,
+			embedding: {
+				enabled: this.embeddedMode,
+				mixing_temperature: config.mixing_temperature ?? this.config.embedding?.mixing_temperature ?? 1.0,
+				linear_mixing: config.linear_mixing ?? this.config.embedding?.linear_mixing ?? false,
+			},
+		};
+	}
+
+	getEmbeddingConfig(): { enabled: boolean; mixing_temperature: number; linear_mixing: boolean } {
+		return {
+			enabled: this.embeddedMode,
+			mixing_temperature: this.config.embedding?.mixing_temperature ?? 1.0,
+			linear_mixing: this.config.embedding?.linear_mixing ?? false,
+		};
 	}
 }

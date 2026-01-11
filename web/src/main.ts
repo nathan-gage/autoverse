@@ -10,8 +10,11 @@ import type {
 	Preset,
 	Seed,
 	SimulationConfig,
+	SpeciesConfig,
 	ViewerSettings,
+	VisualizationMode,
 } from "./types";
+import type { BuiltinPreset } from "./presets";
 import { UI } from "./ui";
 
 // Default configuration
@@ -63,6 +66,7 @@ class FlowLeniaViewer {
 		brushSize: 3,
 		brushIntensity: 0.5,
 		backend: "cpu",
+		visualizationMode: "mass",
 	};
 
 	private isPlaying = false;
@@ -114,6 +118,14 @@ class FlowLeniaViewer {
 					this.interaction.setBrushIntensity(intensity);
 				},
 				onBackendChange: (backend) => this.switchBackend(backend),
+				// Embedding callbacks
+				onEmbeddingToggle: (enabled) => this.toggleEmbedding(enabled),
+				onEmbeddingConfigChange: (config) => this.updateEmbeddingConfig(config),
+				onSpeciesAdd: (species) => this.addSpecies(species),
+				onSpeciesUpdate: (index, species) => this.updateSpecies(index, species),
+				onSpeciesDelete: (index) => this.deleteSpecies(index),
+				onVisualizationModeChange: (mode) => this.setVisualizationMode(mode),
+				onBuiltinPresetSelect: (preset) => this.resetWithBuiltinPreset(preset),
 			});
 
 			// Initialize renderer
@@ -238,7 +250,17 @@ class FlowLeniaViewer {
 		const state = this.simulation.getState();
 		const selection = this.interaction.getSelection();
 		const ghostPreview = this.interaction.getGhostPreview();
-		this.renderer.render(state, selection, ghostPreview);
+
+		// Get parameter field if in embedded mode and visualizing parameters
+		let paramField: number[] | null = null;
+		if (
+			this.simulation.isEmbeddedMode() &&
+			this.settings.visualizationMode !== "mass"
+		) {
+			paramField = this.simulation.getParamField(this.settings.visualizationMode);
+		}
+
+		this.renderer.render(state, selection, ghostPreview, paramField);
 	}
 
 	private updateStats(): void {
@@ -332,6 +354,76 @@ class FlowLeniaViewer {
 		} catch (error) {
 			alert(`Failed to import presets: ${error}`);
 		}
+	}
+
+	// ============================================================================
+	// Embedding Methods
+	// ============================================================================
+
+	private async toggleEmbedding(enabled: boolean): Promise<void> {
+		await this.simulation.setEmbeddedMode(enabled);
+
+		// If disabling, reset visualization mode to mass
+		if (!enabled && this.settings.visualizationMode !== "mass") {
+			this.settings.visualizationMode = "mass";
+			this.renderer.updateSettings({ visualizationMode: "mass" });
+		}
+
+		// Update species UI
+		this.ui.renderSpecies(this.simulation.getSpecies());
+		this.render();
+	}
+
+	private updateEmbeddingConfig(config: {
+		mixing_temperature?: number;
+		linear_mixing?: boolean;
+	}): void {
+		this.simulation.updateEmbeddingConfig(config);
+	}
+
+	private addSpecies(species: SpeciesConfig): void {
+		this.simulation.addSpecies(species);
+		this.ui.renderSpecies(this.simulation.getSpecies());
+	}
+
+	private updateSpecies(index: number, species: SpeciesConfig): void {
+		this.simulation.updateSpecies(index, species);
+	}
+
+	private deleteSpecies(index: number): void {
+		this.simulation.removeSpecies(index);
+		this.ui.renderSpecies(this.simulation.getSpecies());
+	}
+
+	private setVisualizationMode(mode: VisualizationMode): void {
+		this.settings.visualizationMode = mode;
+		this.renderer.updateSettings({ visualizationMode: mode });
+		this.render();
+	}
+
+	private async resetWithBuiltinPreset(preset: BuiltinPreset): Promise<void> {
+		// Check if this is an embedding preset
+		if (preset.embeddingEnabled && preset.species) {
+			// Enable embedding mode
+			await this.simulation.setEmbeddedMode(true);
+			this.ui.setEmbeddingEnabled(true);
+
+			// Set species
+			this.simulation.setSpecies(preset.species);
+			this.ui.renderSpecies(preset.species);
+
+			// Reset with species
+			await this.simulation.resetWithSpecies(preset.seed as Seed);
+		} else {
+			// Standard reset
+			await this.simulation.setEmbeddedMode(false);
+			this.ui.setEmbeddingEnabled(false);
+			this.ui.renderSpecies([]);
+			this.simulation.reset(preset.seed as Seed);
+		}
+
+		this.render();
+		this.updateStats();
 	}
 }
 
