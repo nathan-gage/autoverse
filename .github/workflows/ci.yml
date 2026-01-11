@@ -15,7 +15,7 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: rust / test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -37,7 +37,7 @@ jobs:
         run: cargo test --profile ci --verbose
 
   clippy:
-    name: Clippy
+    name: rust / clippy
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -61,7 +61,7 @@ jobs:
         run: cargo clippy --profile ci -- -W clippy::all
 
   fmt:
-    name: Format
+    name: rust / format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -76,7 +76,7 @@ jobs:
         run: cargo fmt --all -- --check
 
   web-lint:
-    name: Web Lint
+    name: web / lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
