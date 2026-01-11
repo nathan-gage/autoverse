@@ -16,6 +16,7 @@ interface WasmEvolutionModule {
 
 interface WasmEvolutionEngine {
 	step(): EvolutionProgress | string;
+	stepBudget(maxEvaluations: number): EvolutionProgress | string;
 	isComplete(): boolean;
 	getResult(): EvolutionResult | string;
 	cancel(): void;
@@ -57,6 +58,7 @@ let bestStateTask: IdleTaskHandle | null = null;
 let resultTask: IdleTaskHandle | null = null;
 let lastBestStateUpdate = 0;
 const BEST_STATE_THROTTLE_MS = 750;
+const EVALUATIONS_PER_TICK = 2;
 
 type IdleTaskType = "idle" | "timeout";
 type IdleTaskHandle = { id: number; type: IdleTaskType };
@@ -251,7 +253,7 @@ function runEvolutionLoop(): void {
 	}
 
 	try {
-		const progress = parseWasmJson(engine.step());
+		const progress = parseWasmJson(engine.stepBudget(EVALUATIONS_PER_TICK));
 
 		evolutionStore.update((s) => ({
 			...s,

@@ -1169,6 +1169,15 @@ pub struct WasmEvolutionEngine {
     default_seed: Seed,
     initialized: bool,
     initial_evaluation_done: bool,
+    evaluation_stage: EvaluationStage,
+    evaluation_index: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EvaluationStage {
+    None,
+    Initial,
+    Generation,
 }
 
 #[wasm_bindgen]
@@ -1198,6 +1207,8 @@ impl WasmEvolutionEngine {
             default_seed: Seed::default(),
             initialized: false,
             initial_evaluation_done: false,
+            evaluation_stage: EvaluationStage::None,
+            evaluation_index: 0,
         })
     }
     #[wasm_bindgen(js_name = setDefaultSeed)]
@@ -1208,25 +1219,13 @@ impl WasmEvolutionEngine {
     }
     #[wasm_bindgen]
     pub fn step(&mut self) -> Result<JsValue, JsValue> {
-        if self.cancelled {
-            return self.get_progress();
-        }
-        if !self.initialized {
-            self.initialize();
-            self.initialized = true;
-            return self.get_progress();
-        }
-        if !self.initial_evaluation_done {
-            self.evaluate_population();
-            self.initial_evaluation_done = true;
-            return self.get_progress();
-        }
-        if self.should_stop().is_some() {
-            return self.get_progress();
-        }
-        self.step_generation();
-        self.evaluate_population();
-        self.get_progress()
+        let budget = self.config.population.size.max(1);
+        self.step_with_budget(budget)
+    }
+    #[wasm_bindgen(js_name = stepBudget)]
+    pub fn step_budget(&mut self, max_evaluations: usize) -> Result<JsValue, JsValue> {
+        let budget = max_evaluations.max(1);
+        self.step_with_budget(budget)
     }
     #[wasm_bindgen(js_name = isComplete)]
     pub fn is_complete(&self) -> bool {
@@ -1326,6 +1325,44 @@ impl WasmEvolutionEngine {
 }
 
 impl WasmEvolutionEngine {
+    fn step_with_budget(&mut self, max_evaluations: usize) -> Result<JsValue, JsValue> {
+        if self.cancelled {
+            return self.get_progress();
+        }
+        if !self.initialized {
+            self.initialize();
+            self.initialized = true;
+            self.evaluation_stage = EvaluationStage::Initial;
+            self.evaluation_index = 0;
+            return self.get_progress();
+        }
+        if self.evaluation_stage == EvaluationStage::Initial && !self.initial_evaluation_done {
+            self.evaluate_population_budget(max_evaluations);
+            if self.evaluation_index >= self.population.len() {
+                self.initial_evaluation_done = true;
+                self.evaluation_stage = EvaluationStage::None;
+                self.evaluation_index = 0;
+            }
+            return self.get_progress();
+        }
+        if self.should_stop().is_some() {
+            return self.get_progress();
+        }
+        if self.evaluation_stage == EvaluationStage::None {
+            self.step_generation();
+            self.evaluation_stage = EvaluationStage::Generation;
+            self.evaluation_index = 0;
+        }
+        if self.evaluation_stage == EvaluationStage::Generation {
+            self.evaluate_population_budget(max_evaluations);
+            if self.evaluation_index >= self.population.len() {
+                self.evaluation_stage = EvaluationStage::None;
+                self.evaluation_index = 0;
+            }
+        }
+        self.get_progress()
+    }
+
     fn initialize(&mut self) {
         self.population.clear();
         self.generation = 0;
@@ -1345,8 +1382,11 @@ impl WasmEvolutionEngine {
             self.next_id += 1;
         }
     }
-    fn evaluate_population(&mut self) {
-        for c in &mut self.population {
+    fn evaluate_population_budget(&mut self, max_evaluations: usize) {
+        let budget = max_evaluations.max(1);
+        let mut evaluations = 0;
+        while self.evaluation_index < self.population.len() && evaluations < budget {
+            let c = &mut self.population[self.evaluation_index];
             let cfg = c.genome.to_config(&self.config.base_config);
             let s = c
                 .genome
@@ -1356,6 +1396,8 @@ impl WasmEvolutionEngine {
             c.fitness = f;
             c.metrics = m;
             c.behavior = b;
+            self.evaluation_index += 1;
+            evaluations += 1;
         }
     }
     fn step_generation(&mut self) {
@@ -1543,7 +1585,7 @@ impl WasmEvolutionEngine {
                 .map(|c| c.to_snapshot(&self.config.base_config, &self.default_seed))
                 .collect()
         };
-        let ph = if !self.initialized {
+        let ph = if !self.initialized || self.evaluation_stage == EvaluationStage::Initial {
             EvolutionPhase::Initializing
         } else if self.cancelled {
             EvolutionPhase::Stopped
@@ -1552,10 +1594,15 @@ impl WasmEvolutionEngine {
         } else {
             EvolutionPhase::Evaluating
         };
+        let evaluations_completed = if self.evaluation_stage == EvaluationStage::None {
+            self.population.len()
+        } else {
+            self.evaluation_index.min(self.population.len())
+        };
         serde_wasm_bindgen::to_value(&EvolutionProgress {
             generation: self.generation,
             total_generations: self.config.population.max_generations,
-            evaluations_completed: self.population.len(),
+            evaluations_completed,
             evaluations_total: self.config.population.size,
             best_fitness: self.best_fitness,
             avg_fitness: avg,
