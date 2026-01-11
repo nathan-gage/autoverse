@@ -91,14 +91,16 @@ let animationFrameId: number | null = null;
 let lastFrameTime = 0;
 let frameCount = 0;
 let fpsUpdateTime = 0;
-let stepsPerFrame = 1;
+let stepsPerSecond = 60;
+let stepRemainder = 0;
 
 export function getManager(): SimulationManager | null {
 	return manager;
 }
 
-export function setStepsPerFrame(steps: number): void {
-	stepsPerFrame = Math.max(1, Math.min(10, steps));
+export function setStepsPerSecond(steps: number): void {
+	stepsPerSecond = Math.max(1, Math.min(480, steps));
+	stepRemainder = 0;
 }
 
 export async function initializeSimulation(): Promise<void> {
@@ -170,10 +172,22 @@ async function animate(currentTime: number): Promise<void> {
 	const current = get(simulationStore);
 	if (!current.playing || !manager) return;
 
-	const frameTime = currentTime - lastFrameTime;
+	let frameTime = currentTime - lastFrameTime;
 	lastFrameTime = currentTime;
 
-	await manager.run(stepsPerFrame);
+	const maxFrameTime = 250;
+	if (frameTime > maxFrameTime) {
+		frameTime = maxFrameTime;
+		stepRemainder = 0;
+	}
+
+	const targetSteps = (stepsPerSecond * frameTime) / 1000 + stepRemainder;
+	const stepsToRun = Math.floor(targetSteps);
+	stepRemainder = targetSteps - stepsToRun;
+
+	if (stepsToRun > 0) {
+		await manager.run(stepsToRun);
+	}
 	updateState();
 
 	// FPS calculation
