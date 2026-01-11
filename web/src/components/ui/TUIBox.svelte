@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { Snippet } from "svelte";
+
 	type BorderColor = "primary" | "secondary" | "tertiary";
 
 	interface Props {
@@ -6,9 +8,10 @@
 		borderColor?: BorderColor;
 		noPadding?: boolean;
 		class?: string;
+		children?: Snippet;
 	}
 
-	let { title, borderColor = "primary", noPadding = false, class: className = "" }: Props = $props();
+	let { title, borderColor = "primary", noPadding = false, class: className = "", children }: Props = $props();
 
 	const colorClasses: Record<BorderColor, string> = {
 		primary: "border-primary",
@@ -29,7 +32,7 @@
 	{/if}
 
 	<div class="content" class:no-padding={noPadding}>
-		<slot />
+		{@render children?.()}
 	</div>
 </div>
 

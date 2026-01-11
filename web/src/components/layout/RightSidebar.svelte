@@ -156,6 +156,7 @@
 					class="preset-item"
 					draggable="true"
 					onclick={() => handlePresetClick(preset)}
+					onkeydown={(e) => e.key === "Enter" && handlePresetClick(preset)}
 					ondragstart={(e) => handleDragStart(e, preset)}
 					role="button"
 					tabindex="0"
