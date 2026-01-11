@@ -945,4 +945,108 @@ mod tests {
         assert!(result.stats.total_evaluations > 0);
         assert!(result.stats.elapsed_seconds > 0.0);
     }
+
+    // ===== Archive-Evolution Integration =====
+
+    #[test]
+    fn test_evolution_populates_archive() {
+        let mut config = test_config(10, 5, 20);
+        config.fitness.archive_threshold = Some(-100.0); // Very low - archive everything
+        config.archive.diversity_threshold = 0.0; // No diversity filter
+        config.archive.max_size = 50;
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Archive should have captured some patterns
+        assert!(
+            !result.archive.is_empty(),
+            "Archive should contain patterns after evolution"
+        );
+
+        // All archived patterns should have fitness above threshold
+        for pattern in &result.archive {
+            assert!(
+                pattern.fitness >= -100.0,
+                "Archived pattern should meet threshold"
+            );
+        }
+    }
+
+    #[test]
+    fn test_archive_respects_diversity_threshold() {
+        let mut config = test_config(10, 5, 20);
+        config.fitness.archive_threshold = Some(-100.0);
+        config.archive.diversity_threshold = 100.0; // Very high - should limit archiving
+        config.archive.max_size = 50;
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // With high diversity threshold, archive should have fewer entries
+        // (exact count depends on random genomes, but should be limited)
+        assert!(
+            result.archive.len() <= 10,
+            "High diversity threshold should limit archive size, got {}",
+            result.archive.len()
+        );
+    }
+
+    // ===== Edge Case Tests for Robustness =====
+
+    #[test]
+    fn test_handles_nan_in_fitness_gracefully() {
+        // This tests that the system doesn't crash with edge case configs
+        let mut config = test_config(5, 2, 5);
+        // Very extreme parameters that might produce edge cases
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            mutation_rate: 1.0,
+            mutation_strength: 1.0, // Very high
+            crossover_rate: 1.0,
+            elitism: 1,
+            selection: SelectionMethod::Tournament { size: 2 },
+        });
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Should complete without panic
+        assert_eq!(result.stats.generations, 2);
+        // Best fitness should be a valid number (not NaN)
+        assert!(
+            !result.stats.best_fitness.is_nan(),
+            "Best fitness should not be NaN"
+        );
+    }
+
+    #[test]
+    fn test_tournament_size_larger_than_population() {
+        let mut config = test_config(5, 3, 5);
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            selection: SelectionMethod::Tournament { size: 100 }, // Much larger than pop
+            ..Default::default()
+        });
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Should still work (tournament samples with replacement)
+        assert_eq!(result.stats.generations, 3);
+    }
+
+    #[test]
+    fn test_roulette_with_zero_fitness_population() {
+        // Roulette wheel with all-zero fitness should not crash
+        let mut config = test_config(5, 2, 1); // Very short sim = likely low fitness
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            selection: SelectionMethod::RouletteWheel,
+            ..Default::default()
+        });
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Should complete without division by zero or panic
+        assert_eq!(result.stats.generations, 2);
+    }
 }
