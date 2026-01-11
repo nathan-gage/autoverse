@@ -5,7 +5,6 @@ import type {
 	EvolutionConfig,
 	EvolutionProgress,
 	EvolutionResult,
-	SimulationConfig,
 } from "../types";
 import { simulationStore, pause, reset, log } from "./simulation";
 
@@ -179,7 +178,10 @@ function runEvolutionLoop(): void {
 				result,
 			}));
 
-			log(`Evolution complete: fitness=${result.best_fitness.toFixed(3)}, reason=${result.stop_reason}`, "success");
+			log(
+				`Evolution complete: fitness=${result.best_fitness.toFixed(3)}, reason=${result.stop_reason}`,
+				"success",
+			);
 			return;
 		}
 
