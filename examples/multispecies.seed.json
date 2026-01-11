@@ -1,0 +1,20 @@
+{
+  "pattern": {
+    "MultiBlob": {
+      "blobs": [
+        {
+          "center": [0.25, 0.5],
+          "radius": 0.08,
+          "amplitude": 1.0,
+          "channel": 0
+        },
+        {
+          "center": [0.75, 0.5],
+          "radius": 0.08,
+          "amplitude": 1.0,
+          "channel": 0
+        }
+      ]
+    }
+  }
+}

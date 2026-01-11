@@ -1147,7 +1147,7 @@ fn create_mass_sum_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLa
 mod tests {
     use super::*;
     use crate::compute::CpuPropagator;
-    use crate::schema::{FlowConfig, KernelConfig, RingConfig, Seed};
+    use crate::schema::{EmbeddingConfig, FlowConfig, KernelConfig, RingConfig, Seed};
 
     fn test_config() -> SimulationConfig {
         SimulationConfig {
@@ -1174,6 +1174,7 @@ mod tests {
                 n: 2.0,
                 distribution_size: 1.0,
             },
+            embedding: EmbeddingConfig::default(),
         }
     }
 
@@ -1204,6 +1205,7 @@ mod tests {
                 n: 2.0,
                 distribution_size: 1.0,
             },
+            embedding: EmbeddingConfig::default(),
         }
     }
 
