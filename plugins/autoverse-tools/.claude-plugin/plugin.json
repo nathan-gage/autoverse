@@ -1,0 +1,10 @@
+{
+  "name": "autoverse-tools",
+  "description": "Development tools for autoverse: WGSL LSP support, Rust performance guidance, and GitHub issue tracking",
+  "version": "1.0.0",
+  "author": {
+    "name": "nathan-gage"
+  },
+  "category": "development",
+  "strict": false
+}
