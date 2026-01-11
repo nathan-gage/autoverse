@@ -408,8 +408,7 @@ impl<'de> Deserialize<'de> for FitnessMetric {
                 }
 
                 let tagged: FitnessMetricTagged =
-                    serde_json::from_value(Value::Object(map))
-                        .map_err(serde::de::Error::custom)?;
+                    serde_json::from_value(Value::Object(map)).map_err(serde::de::Error::custom)?;
                 Ok(match tagged {
                     FitnessMetricTagged::Persistence => FitnessMetric::Persistence,
                     FitnessMetricTagged::Compactness => FitnessMetric::Compactness,
