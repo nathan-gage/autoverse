@@ -10,9 +10,9 @@
 //! This is slower than FFT's O(N log N) for large kernels, but is required for
 //! spatially-varying parameters.
 
-use crate::schema::{KernelConfig, ParameterGrid};
+use crate::schema::ParameterGrid;
 
-use super::Kernel;
+use super::{Kernel, wrap_coord};
 
 /// Perform direct 2D convolution with periodic boundary conditions.
 ///
@@ -176,18 +176,6 @@ pub fn convolve_growth_accumulate_embedded(
     }
 }
 
-/// Generate a kernel from configuration (same as kernel.rs but public for this module).
-pub fn generate_kernel(config: &KernelConfig, max_radius: usize) -> Kernel {
-    Kernel::from_config(config, max_radius)
-}
-
-/// Wrap coordinate to periodic boundary.
-#[inline]
-fn wrap_coord(coord: i32, size: usize) -> usize {
-    let s = size as i32;
-    ((coord % s) + s) as usize % size
-}
-
 /// Optimized direct convolution using sliding window for cache efficiency.
 ///
 /// This version processes rows in a cache-friendly manner for larger kernels.
@@ -239,8 +227,7 @@ pub fn convolve_direct_optimized_into(
                 let k_row = &kernel.data[ky * k_size..(ky + 1) * k_size];
                 let input_row = &input[sy * width..];
 
-                for kx in 0..k_size {
-                    let k_val = k_row[kx];
+                for (kx, &k_val) in k_row.iter().enumerate() {
                     if k_val == 0.0 {
                         continue;
                     }
