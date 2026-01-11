@@ -68,7 +68,7 @@ jobs:
         working-directory: web
         run: bun run build
         env:
-          BASE_PATH: /preview/pr-${{ github.event.pull_request.number }}/
+          BASE_PATH: /autoverse/preview/pr-${{ github.event.pull_request.number }}/
 
       - name: Deploy preview to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
@@ -86,10 +86,9 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // Get custom domain from GitHub Pages config
-            const pages = await github.rest.repos.getPages({ owner, repo });
-            const domain = pages.data.cname || `${owner}.github.io/${repo}`;
-            const previewUrl = `https://${domain}/preview/pr-${prNumber}/`;
+            // Build preview URL - always include repo name since this is a project page
+            const domain = `${owner}.github.io`;
+            const previewUrl = `https://${domain}/${repo}/preview/pr-${prNumber}/`;
 
             // Check for existing comment
             const comments = await github.rest.issues.listComments({
