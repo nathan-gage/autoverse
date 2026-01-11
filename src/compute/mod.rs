@@ -19,6 +19,8 @@ mod propagator3d;
 mod reintegration;
 mod reintegration3d;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod evolution;
 pub mod gpu;
 
 pub use direct_convolution::*;

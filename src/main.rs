@@ -18,6 +18,7 @@ fn main() {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 
+    #[cfg(not(target_arch = "wasm32"))]
     env_logger::init();
 
     let args: Vec<String> = std::env::args().collect();

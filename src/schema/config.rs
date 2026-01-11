@@ -41,7 +41,7 @@ impl Default for SimulationConfig {
             height: 256,
             depth: 1,
             channels: 1,
-            dt: 0.2,
+            dt: 0.05,
             kernel_radius: 13,
             kernels: vec![KernelConfig::default()],
             flow: FlowConfig::default(),
@@ -112,9 +112,9 @@ pub struct FlowConfig {
 impl Default for FlowConfig {
     fn default() -> Self {
         Self {
-            beta_a: 1.0,
-            n: 2.0,
-            distribution_size: 1.0,
+            beta_a: 2.0,
+            n: 4.0,
+            distribution_size: 0.5,
         }
     }
 }

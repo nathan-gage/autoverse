@@ -4,6 +4,8 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
 	plugins: [svelte()],
+	// Use BASE_PATH env var for GitHub Pages preview deployments
+	base: process.env.BASE_PATH || "/",
 	server: {
 		port: 3000,
 		fs: {

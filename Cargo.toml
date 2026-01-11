@@ -55,6 +55,10 @@ lz4_flex = { version = "0.11", optional = true }
 # Native-only: Parallel computation
 rayon = "1.10"
 
+# Native-only: Random number generation for evolution
+rand = "0.8"
+rand_distr = "0.4"
+
 # Native-only: Logging backend
 env_logger = "0.11"
 
