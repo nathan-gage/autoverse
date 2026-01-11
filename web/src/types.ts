@@ -127,10 +127,13 @@ export interface DraggedCreature {
 
 export type InteractionMode = "view" | "select" | "draw" | "erase";
 
+export type BackendType = "cpu" | "gpu";
+
 export interface ViewerSettings {
 	colorScheme: "grayscale" | "thermal" | "viridis";
 	showGrid: boolean;
 	showSelection: boolean;
 	brushSize: number;
 	brushIntensity: number;
+	backend: BackendType;
 }

@@ -1,7 +1,7 @@
 // UI Components - Controls, panels, and preset library
 
 import { BUILTIN_PRESETS } from "./presets";
-import type { InteractionMode, Preset, Seed, ViewerSettings } from "./types";
+import type { BackendType, InteractionMode, Preset, Seed, ViewerSettings } from "./types";
 
 // Escape HTML to prevent XSS attacks from imported presets
 function escapeHtml(str: string): string {
@@ -29,6 +29,7 @@ export interface UICallbacks {
 	onImportPresets: (json: string) => void;
 	onBrushSizeChange: (size: number) => void;
 	onBrushIntensityChange: (intensity: number) => void;
+	onBackendChange: (backend: BackendType) => void;
 }
 
 export class UI {
@@ -36,7 +37,6 @@ export class UI {
 	private callbacks: UICallbacks;
 	private isPlaying = false;
 	private stepsPerFrame = 1;
-	private currentMode: InteractionMode = "view";
 	private hasSelection = false;
 
 	constructor(container: HTMLElement, callbacks: UICallbacks) {
@@ -125,6 +125,14 @@ export class UI {
             <span>Time: <strong id="simTime">0.00</strong></span>
             <span>Mass: <strong id="totalMass">0.00</strong></span>
             <span>FPS: <strong id="fpsDisplay">0</strong></span>
+            <div class="backend-toggle">
+              <span class="backend-label cpu active" id="cpuLabel">CPU</span>
+              <label class="toggle-switch">
+                <input type="checkbox" id="backendToggle" disabled>
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="backend-label gpu" id="gpuLabel">GPU</span>
+            </div>
           </div>
         </main>
 
@@ -279,6 +287,13 @@ export class UI {
 
 		exportBtn.addEventListener("click", () => this.callbacks.onExportPresets());
 
+		// Backend toggle
+		const backendToggle = this.get<HTMLInputElement>("backendToggle");
+		backendToggle.addEventListener("change", () => {
+			const backend = backendToggle.checked ? "gpu" : "cpu";
+			this.callbacks.onBackendChange(backend);
+		});
+
 		// Keyboard shortcuts
 		document.addEventListener("keydown", (e) => {
 			// Ignore if typing in input
@@ -324,8 +339,6 @@ export class UI {
 	}
 
 	setMode(mode: InteractionMode): void {
-		this.currentMode = mode;
-
 		// Update button states
 		const buttons = {
 			view: this.get("viewModeBtn"),
@@ -440,5 +453,24 @@ export class UI {
 
 	getCanvas(): HTMLCanvasElement {
 		return this.get<HTMLCanvasElement>("simulationCanvas");
+	}
+
+	setGpuAvailable(available: boolean): void {
+		const toggle = this.get<HTMLInputElement>("backendToggle");
+		const gpuLabel = this.get("gpuLabel");
+
+		toggle.disabled = !available;
+		gpuLabel.classList.toggle("unavailable", !available);
+		gpuLabel.title = available ? "GPU backend" : "GPU not available";
+	}
+
+	updateBackend(backend: BackendType): void {
+		const toggle = this.get<HTMLInputElement>("backendToggle");
+		const cpuLabel = this.get("cpuLabel");
+		const gpuLabel = this.get("gpuLabel");
+
+		toggle.checked = backend === "gpu";
+		cpuLabel.classList.toggle("active", backend === "cpu");
+		gpuLabel.classList.toggle("active", backend === "gpu");
 	}
 }

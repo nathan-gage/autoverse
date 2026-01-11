@@ -22,7 +22,6 @@ export interface InteractionCallbacks {
 export class InteractionHandler {
 	private canvas: HTMLCanvasElement;
 	private simulation: SimulationManager;
-	private renderer: Renderer;
 	private callbacks: InteractionCallbacks;
 
 	private mode: InteractionMode = "view";
@@ -40,12 +39,11 @@ export class InteractionHandler {
 	constructor(
 		canvas: HTMLCanvasElement,
 		simulation: SimulationManager,
-		renderer: Renderer,
+		_renderer: Renderer,
 		callbacks: InteractionCallbacks = {},
 	) {
 		this.canvas = canvas;
 		this.simulation = simulation;
-		this.renderer = renderer;
 		this.callbacks = callbacks;
 
 		this.setupEventListeners();

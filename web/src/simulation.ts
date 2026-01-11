@@ -1,11 +1,12 @@
 // Simulation Manager - WASM wrapper with enhanced state management
 
-import type { PresetRegion, Seed, SimulationConfig, SimulationState } from "./types";
+import type { BackendType, PresetRegion, Seed, SimulationConfig, SimulationState } from "./types";
 
 // WASM module types
 interface WasmModule {
 	default: () => Promise<void>;
 	WasmPropagator: new (configJson: string, seedJson: string) => WasmPropagator;
+	WasmGpuPropagator: new (configJson: string, seedJson: string) => Promise<WasmGpuPropagator>;
 }
 
 interface WasmPropagator {
@@ -21,31 +22,47 @@ interface WasmPropagator {
 	getHeight(): number;
 }
 
+interface WasmGpuPropagator {
+	step(): Promise<void>;
+	run(steps: bigint): Promise<void>;
+	getState(): SimulationState;
+	getStats(): unknown;
+	reset(seedJson: string): void;
+	totalMass(): number;
+	getTime(): number;
+	getStep(): number;
+	getWidth(): number;
+	getHeight(): number;
+}
+
+type Propagator = WasmPropagator | WasmGpuPropagator;
+
 export class SimulationManager {
-	private propagator: WasmPropagator | null = null;
+	private propagator: Propagator | null = null;
 	private config: SimulationConfig;
 	private currentSeed: Seed;
 	private isInitialized = false;
 	private wasmModule: WasmModule | null = null;
+	private currentBackend: BackendType = "cpu";
+	private gpuAvailable = false;
 
 	constructor(config: SimulationConfig, seed: Seed) {
 		this.config = config;
 		this.currentSeed = seed;
 	}
 
-	async initialize(): Promise<void> {
-		if (this.isInitialized) return;
-
+	async initialize(backend: BackendType = "cpu"): Promise<void> {
 		try {
 			// Dynamic import of WASM module from the pkg directory
-			// Works in both dev server (serves from ../pkg) and production (copied to dist/pkg)
 			this.wasmModule = (await import("/pkg/flow_lenia.js")) as WasmModule;
 			await this.wasmModule.default();
 
-			this.propagator = new this.wasmModule.WasmPropagator(
-				JSON.stringify(this.config),
-				JSON.stringify(this.currentSeed),
-			);
+			// Check WebGPU availability
+			this.gpuAvailable = await this.checkWebGPU();
+
+			// Create propagator with requested backend (fallback to CPU if GPU unavailable)
+			const useBackend = backend === "gpu" && this.gpuAvailable ? "gpu" : "cpu";
+			await this.createPropagator(useBackend);
 
 			this.isInitialized = true;
 		} catch (error) {
@@ -53,14 +70,77 @@ export class SimulationManager {
 		}
 	}
 
-	step(): void {
-		this.ensureInitialized();
-		this.propagator!.step();
+	private async checkWebGPU(): Promise<boolean> {
+		if (typeof navigator === "undefined" || !("gpu" in navigator)) {
+			return false;
+		}
+		try {
+			const adapter = await navigator.gpu.requestAdapter();
+			return adapter !== null;
+		} catch {
+			return false;
+		}
 	}
 
-	run(steps: number): void {
+	private async createPropagator(backend: BackendType): Promise<void> {
+		if (!this.wasmModule) {
+			throw new Error("WASM module not loaded");
+		}
+
+		const configJson = JSON.stringify(this.config);
+		const seedJson = JSON.stringify(this.currentSeed);
+
+		if (backend === "gpu" && this.gpuAvailable) {
+			// GPU propagator constructor returns a Promise
+			this.propagator = await new this.wasmModule.WasmGpuPropagator(configJson, seedJson);
+			this.currentBackend = "gpu";
+		} else {
+			this.propagator = new this.wasmModule.WasmPropagator(configJson, seedJson);
+			this.currentBackend = "cpu";
+		}
+	}
+
+	async switchBackend(backend: BackendType): Promise<boolean> {
+		if (!this.isInitialized) {
+			throw new Error("Simulation not initialized");
+		}
+
+		if (backend === "gpu" && !this.gpuAvailable) {
+			return false;
+		}
+
+		if (backend === this.currentBackend) {
+			return true;
+		}
+
+		await this.createPropagator(backend);
+		return true;
+	}
+
+	isGpuAvailable(): boolean {
+		return this.gpuAvailable;
+	}
+
+	getBackend(): BackendType {
+		return this.currentBackend;
+	}
+
+	async step(): Promise<void> {
 		this.ensureInitialized();
-		this.propagator!.run(BigInt(steps));
+		if (this.currentBackend === "gpu") {
+			await (this.propagator as WasmGpuPropagator).step();
+		} else {
+			(this.propagator as WasmPropagator).step();
+		}
+	}
+
+	async run(steps: number): Promise<void> {
+		this.ensureInitialized();
+		if (this.currentBackend === "gpu") {
+			await (this.propagator as WasmGpuPropagator).run(BigInt(steps));
+		} else {
+			(this.propagator as WasmPropagator).run(BigInt(steps));
+		}
 	}
 
 	getState(): SimulationState {

@@ -4,7 +4,14 @@ import { InteractionHandler } from "./interaction";
 import { PresetManager } from "./presets";
 import { Renderer } from "./renderer";
 import { SimulationManager } from "./simulation";
-import type { InteractionMode, Preset, Seed, SimulationConfig, ViewerSettings } from "./types";
+import type {
+	BackendType,
+	InteractionMode,
+	Preset,
+	Seed,
+	SimulationConfig,
+	ViewerSettings,
+} from "./types";
 import { UI } from "./ui";
 
 // Default configuration
@@ -55,6 +62,7 @@ class FlowLeniaViewer {
 		showSelection: true,
 		brushSize: 3,
 		brushIntensity: 0.5,
+		backend: "cpu",
 	};
 
 	private isPlaying = false;
@@ -105,6 +113,7 @@ class FlowLeniaViewer {
 					this.settings.brushIntensity = intensity;
 					this.interaction.setBrushIntensity(intensity);
 				},
+				onBackendChange: (backend) => this.switchBackend(backend),
 			});
 
 			// Initialize renderer
@@ -144,6 +153,11 @@ class FlowLeniaViewer {
 				this.ui.renderPresets(presets);
 			});
 
+			// Set up backend toggle based on GPU availability
+			this.ui.setGpuAvailable(this.simulation.isGpuAvailable());
+			this.ui.updateBackend(this.simulation.getBackend());
+			this.settings.backend = this.simulation.getBackend();
+
 			// Initial render
 			this.ui.renderPresets(this.presetManager.getAllPresets());
 			this.render();
@@ -178,8 +192,8 @@ class FlowLeniaViewer {
 		}
 	}
 
-	private step(): void {
-		this.simulation.step();
+	private async step(): Promise<void> {
+		await this.simulation.step();
 		this.render();
 		this.updateStats();
 	}
@@ -190,10 +204,10 @@ class FlowLeniaViewer {
 		this.updateStats();
 	}
 
-	private animate(currentTime: number): void {
+	private async animate(currentTime: number): Promise<void> {
 		if (!this.isPlaying) return;
 
-		this.simulation.run(this.stepsPerFrame);
+		await this.simulation.run(this.stepsPerFrame);
 		this.render();
 		this.updateStats();
 
@@ -236,6 +250,19 @@ class FlowLeniaViewer {
 		this.settings = { ...this.settings, ...settings };
 		this.renderer.updateSettings(settings);
 		this.render();
+	}
+
+	private async switchBackend(backend: BackendType): Promise<void> {
+		const success = await this.simulation.switchBackend(backend);
+		if (success) {
+			this.settings.backend = backend;
+			this.ui.updateBackend(backend);
+			console.log(`Switched to ${backend.toUpperCase()} backend`);
+		} else {
+			// Revert toggle if switch failed
+			this.ui.updateBackend(this.simulation.getBackend());
+			console.warn(`Failed to switch to ${backend} backend`);
+		}
 	}
 
 	private saveSelection(name: string): void {
