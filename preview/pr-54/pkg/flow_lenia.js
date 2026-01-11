@@ -293,6 +293,17 @@ export class WasmEvolutionEngine {
         return ret !== 0;
     }
     /**
+     * @param {number} max_evaluations
+     * @returns {any}
+     */
+    stepBudget(max_evaluations) {
+        const ret = wasm.wasmevolutionengine_stepBudget(this.__wbg_ptr, max_evaluations);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * @returns {number}
      */
     getGeneration() {
