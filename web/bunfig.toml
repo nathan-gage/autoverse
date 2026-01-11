@@ -1,0 +1,21 @@
+# Bun configuration for Flow Lenia Viewer
+
+[build]
+# Output directory for bundled files
+outdir = "./dist"
+
+# Enable minification for production
+minify = true
+
+# Generate source maps
+sourcemap = "external"
+
+# Target environment
+target = "browser"
+
+[dev]
+# Development server port
+port = 3000
+
+# Enable hot module replacement
+hot = true

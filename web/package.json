@@ -1,0 +1,16 @@
+{
+  "name": "flow-lenia-viewer",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --bun run dev-server.ts",
+    "build": "bun run build.ts",
+    "build:wasm": "cd .. && wasm-pack build --target web --release",
+    "preview": "bunx serve dist -l 3000",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.3.0"
+  }
+}
