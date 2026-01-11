@@ -15,11 +15,11 @@ interface WasmEvolutionModule {
 }
 
 interface WasmEvolutionEngine {
-	step(): string;
+	step(): EvolutionProgress | string;
 	isComplete(): boolean;
-	getResult(): string;
+	getResult(): EvolutionResult | string;
 	cancel(): void;
-	getBestCandidateState(): BestCandidateState | null;
+	getBestCandidateState(): BestCandidateState | string | null;
 	setDefaultSeed(seedJson: string): void;
 	free(): void;
 }
@@ -53,6 +53,13 @@ export const bestCandidateState = derived(evolutionStore, ($s) => $s.bestState);
 let wasmModule: WasmEvolutionModule | null = null;
 let engine: WasmEvolutionEngine | null = null;
 let animationFrameId: number | null = null;
+
+function parseWasmJson<T>(value: T | string): T {
+	if (typeof value === "string") {
+		return JSON.parse(value) as T;
+	}
+	return value;
+}
 
 export async function initializeEvolution(): Promise<void> {
 	try {
@@ -157,10 +164,8 @@ function runEvolutionLoop(): void {
 	}
 
 	try {
-		const progressJson = engine.step();
-		const progress: EvolutionProgress = JSON.parse(progressJson);
-
-		const bestState = engine.getBestCandidateState();
+		const progress = parseWasmJson(engine.step());
+		const bestState = parseWasmJson(engine.getBestCandidateState());
 
 		evolutionStore.update((s) => ({
 			...s,
@@ -169,8 +174,7 @@ function runEvolutionLoop(): void {
 		}));
 
 		if (engine.isComplete()) {
-			const resultJson = engine.getResult();
-			const result: EvolutionResult = JSON.parse(resultJson);
+			const result = parseWasmJson(engine.getResult());
 
 			evolutionStore.update((s) => ({
 				...s,
@@ -206,8 +210,7 @@ export function cancelEvolution(): void {
 	if (engine && state.running) {
 		engine.cancel();
 		try {
-			const resultJson = engine.getResult();
-			const result: EvolutionResult = JSON.parse(resultJson);
+			const result = parseWasmJson(engine.getResult());
 			evolutionStore.update((s) => ({ ...s, result }));
 		} catch {
 			// Ignore errors getting result after cancel
