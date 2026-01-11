@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { simulationStore } from "../../stores/simulation";
 	import { currentScheme, nextScheme, COLOR_SCHEMES, setScheme } from "../../stores/themes";
+	import { settings, togglePanels } from "../../stores/settings";
 </script>
 
 <header class="header">
@@ -10,6 +11,16 @@
  █▀█ █▄█  █  █ █ ▀▄▀ ██▄ █▀▄ ▄██ ██▄`}</pre>
 	</div>
 	<div class="header-right">
+		<div class="panel-toggle">
+			<span class="toggle-label">PANELS</span>
+			<button class="toggle-btn" onclick={togglePanels}>
+				{#if $settings.showPanels}
+					HIDE
+				{:else}
+					SHOW
+				{/if}
+			</button>
+		</div>
 		<div class="theme-picker">
 			<span class="picker-label">THEME</span>
 			<div class="theme-swatches">
@@ -60,6 +71,31 @@
 		display: flex;
 		align-items: center;
 		gap: 20px;
+	}
+
+	.panel-toggle {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 4px;
+	}
+
+	.toggle-label {
+		font-size: 8px;
+		color: var(--color-primary-dim);
+		letter-spacing: 0.1em;
+	}
+
+	.toggle-btn {
+		font-size: 8px;
+		padding: 4px 8px;
+		border-color: var(--color-secondary-dim);
+		color: var(--color-secondary);
+	}
+
+	.toggle-btn:hover {
+		border-color: var(--color-secondary);
+		box-shadow: 0 0 10px var(--color-secondary-glow);
 	}
 
 	/* Theme Picker */
@@ -145,6 +181,7 @@
 		}
 
 		.theme-picker,
+		.panel-toggle,
 		.backend-indicator {
 			align-items: flex-start;
 		}

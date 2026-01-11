@@ -22,6 +22,9 @@ export interface SettingsState {
 	zoom: number;
 	panX: number;
 	panY: number;
+
+	// Layout
+	showPanels: boolean;
 }
 
 const initialSettings: SettingsState = {
@@ -36,6 +39,7 @@ const initialSettings: SettingsState = {
 	zoom: 1,
 	panX: 0,
 	panY: 0,
+	showPanels: true,
 };
 
 export const settings = writable<SettingsState>(initialSettings);
@@ -67,6 +71,10 @@ export function toggleScanlines(): void {
 
 export function toggleGrid(): void {
 	settings.update((s) => ({ ...s, showGrid: !s.showGrid }));
+}
+
+export function togglePanels(): void {
+	settings.update((s) => ({ ...s, showPanels: !s.showPanels }));
 }
 
 // Future: Parameter embedding settings (PR #28)

@@ -183,12 +183,14 @@
 
 		<Header />
 
-		<div class="main-content">
+		<div class="main-content" class:panel-hidden={!$settings.showPanels}>
 			<SimulationView />
-			<div class="panel-deck">
-				<LeftSidebar />
-				<RightSidebar />
-			</div>
+			{#if $settings.showPanels}
+				<div class="panel-deck">
+					<LeftSidebar />
+					<RightSidebar />
+				</div>
+			{/if}
 		</div>
 
 		<Footer />
@@ -275,6 +277,11 @@
 		padding: 8px;
 		position: relative;
 		z-index: 1;
+	}
+
+	.main-content.panel-hidden {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-areas: "sim";
 	}
 
 	.main-content :global(.left-sidebar) {
