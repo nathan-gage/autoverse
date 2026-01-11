@@ -19,9 +19,16 @@
         "source": "directory",
         "path": "./plugins/autoverse-tools"
       }
+    },
+    "claude-plugins-official": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-code"
+      }
     }
   },
   "enabledPlugins": {
-    "autoverse-tools@autoverse-local": true
+    "autoverse-tools@autoverse-local": true,
+    "rust-analyzer-lsp@claude-plugins-official": true
   }
 }
