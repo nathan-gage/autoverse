@@ -38,6 +38,7 @@ impl Default for EvolutionConfig {
             base_config: SimulationConfig {
                 width: 128,
                 height: 128,
+                depth: 1,
                 channels: 1,
                 dt: 0.2,
                 kernel_radius: 13,
@@ -798,6 +799,7 @@ impl Genome {
         SimulationConfig {
             width: base.width,
             height: base.height,
+            depth: base.depth,
             channels: base.channels,
             dt: base.dt,
             kernel_radius: base.kernel_radius,

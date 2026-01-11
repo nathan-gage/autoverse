@@ -16,6 +16,7 @@ fn bench_propagator_step(c: &mut Criterion) {
         let config = SimulationConfig {
             width: size,
             height: size,
+            depth: 1,
             channels: 1,
             dt: 0.2,
             kernel_radius: 13,
@@ -69,6 +70,7 @@ fn bench_multichannel(c: &mut Criterion) {
         let config = SimulationConfig {
             width: 128,
             height: 128,
+            depth: 1,
             channels,
             dt: 0.2,
             kernel_radius: 13,
