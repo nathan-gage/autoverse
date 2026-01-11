@@ -174,12 +174,14 @@
 		align-items: center;
 		justify-content: center;
 		background: var(--color-void);
+		touch-action: none;
 	}
 
 	canvas {
 		display: block;
 		image-rendering: pixelated;
 		image-rendering: crisp-edges;
+		touch-action: none;
 	}
 
 	/* Corner markers */

@@ -184,9 +184,11 @@
 		<Header />
 
 		<div class="main-content">
-			<LeftSidebar />
 			<SimulationView />
-			<RightSidebar />
+			<div class="panel-deck">
+				<LeftSidebar />
+				<RightSidebar />
+			</div>
 		</div>
 
 		<Footer />
@@ -265,7 +267,9 @@
 
 	.main-content {
 		flex: 1;
-		display: flex;
+		display: grid;
+		grid-template-columns: 220px minmax(0, 1fr) 180px;
+		grid-template-areas: "left sim right";
 		min-height: 0;
 		gap: 8px;
 		padding: 8px;
@@ -273,41 +277,68 @@
 		z-index: 1;
 	}
 
+	.main-content :global(.left-sidebar) {
+		grid-area: left;
+	}
+
+	.main-content :global(.simulation-view) {
+		grid-area: sim;
+	}
+
+	.main-content :global(.right-sidebar) {
+		grid-area: right;
+	}
+
+	.panel-deck {
+		display: contents;
+	}
+
 	@media (max-width: 1100px) {
 		.main-content {
+			grid-template-columns: 200px minmax(0, 1fr) 160px;
 			gap: 6px;
 			padding: 6px;
-		}
-
-		.main-content :global(.left-sidebar) {
-			width: 200px;
-		}
-
-		.main-content :global(.right-sidebar) {
-			width: 160px;
 		}
 	}
 
 	@media (max-width: 900px) {
 		.main-content {
-			flex-direction: column;
+			display: block;
+			padding: 8px;
+		}
+
+		.panel-deck {
+			position: absolute;
+			left: 8px;
+			right: 8px;
+			bottom: 8px;
+			display: flex;
+			gap: 12px;
+			overflow-x: auto;
+			scroll-snap-type: x mandatory;
+			padding: 8px 4px 12px;
+			z-index: 3;
+			overscroll-behavior-x: contain;
+		}
+
+		.panel-deck :global(.left-sidebar),
+		.panel-deck :global(.right-sidebar) {
+			width: 100%;
+			min-width: min(320px, 90vw);
+			max-width: 90vw;
+			max-height: 70vh;
 			overflow-y: auto;
-			padding: 6px 8px;
+			scroll-snap-align: start;
+			padding: 8px;
+			border: 1px solid var(--color-primary-dim);
+			background: color-mix(in srgb, var(--color-void) 88%, transparent);
+			backdrop-filter: blur(8px);
+			box-shadow: 0 0 18px color-mix(in srgb, var(--color-primary) 30%, transparent);
 		}
 
-		.main-content :global(.simulation-view) {
-			order: 1;
-		}
-
-		.main-content :global(.left-sidebar) {
-			order: 2;
-			width: 100%;
-		}
-
-		.main-content :global(.right-sidebar) {
-			order: 3;
-			width: 100%;
-			padding-top: 0;
+		.panel-deck :global(.right-sidebar) {
+			border-color: var(--color-secondary-dim);
+			box-shadow: 0 0 18px color-mix(in srgb, var(--color-secondary) 30%, transparent);
 		}
 	}
 
