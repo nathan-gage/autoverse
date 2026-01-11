@@ -12,5 +12,16 @@
       "Bash(cargo build:*)",
       "Bash(cargo clippy:*)"
     ]
+  },
+  "extraKnownMarketplaces": {
+    "autoverse-local": {
+      "source": {
+        "source": "directory",
+        "path": "./plugins/autoverse-tools"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "autoverse-tools@autoverse-local": true
   }
 }
