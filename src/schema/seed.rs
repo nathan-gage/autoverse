@@ -3,6 +3,9 @@
 //! Supports both 2D and 3D patterns. 2D patterns work in 3D by placing
 //! the pattern at z=depth/2 (middle slice).
 
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::needless_range_loop)]
+
 use serde::{Deserialize, Serialize};
 
 /// Complete seed specification for simulation initialization.

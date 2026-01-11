@@ -2,6 +2,8 @@
 //!
 //! Implements the advection scheme that guarantees total mass conservation in 3D.
 
+#![allow(clippy::too_many_arguments)]
+
 use super::reintegration::wrap_coord;
 
 /// Advect mass from current 3D state to new state using flow field.

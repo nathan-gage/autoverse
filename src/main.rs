@@ -385,7 +385,7 @@ fn cmd_export(args: &[String]) {
 
         // Print progress every 10%
         let progress = i - start_frame + 1;
-        if progress % (total_frames / 10).max(1) == 0 {
+        if progress.is_multiple_of((total_frames / 10).max(1)) {
             let elapsed = start.elapsed().as_secs_f32();
             let fps = progress as f32 / elapsed;
             println!(

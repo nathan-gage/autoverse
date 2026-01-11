@@ -22,6 +22,7 @@ native = []  # Marks native build
 wasm = []    # Marks WASM build
 dhat-heap = ["dhat"]  # Heap profiling
 gpu = []     # Marks GPU compute backend
+lz4 = ["lz4_flex"]  # LZ4 compression for animations
 
 [dependencies]
 # FFT for fast convolution (WASM-compatible)
@@ -46,6 +47,9 @@ log = "0.4"
 
 # Optional: Heap profiling
 dhat = { version = "0.3", optional = true }
+
+# Optional: LZ4 compression for animations
+lz4_flex = { version = "0.11", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Native-only: Parallel computation
