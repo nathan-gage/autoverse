@@ -4,7 +4,9 @@ use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_ma
 
 use flow_lenia::{
     compute::{CpuPropagator, SimulationState},
-    schema::{EmbeddingConfig, FlowConfig, KernelConfig, Pattern, RingConfig, Seed, SimulationConfig},
+    schema::{
+        EmbeddingConfig, FlowConfig, KernelConfig, Pattern, RingConfig, Seed, SimulationConfig,
+    },
 };
 
 fn bench_propagator_step(c: &mut Criterion) {
