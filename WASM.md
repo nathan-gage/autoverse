@@ -67,14 +67,23 @@ const mass = propagator.totalMass();
 propagator.reset(JSON.stringify(seed));
 ```
 
-## Web Demo
+## Web Viewer
 
-See `examples/web/` for an interactive Canvas visualization:
+See `web/` for the interactive web viewer with drag-and-drop creatures, presets, and more:
 
 ```bash
-# From repo root (after wasm-pack build)
-python3 -m http.server 8000
-# Open http://localhost:8000/examples/web/
+cd web
+bun install
+bun run dev
+# Open http://localhost:3000
+```
+
+For production builds:
+
+```bash
+cd web
+bun run build
+bun run preview
 ```
 
 ## Limitations
