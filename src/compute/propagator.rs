@@ -8,8 +8,8 @@ use crate::schema::{Seed, SimulationConfig};
 use rayon::prelude::*;
 
 use super::{
-    CachedConvolver, FrequencyKernel, Kernel, advect_mass_into, compute_flow_field,
-    growth_accumulate, sobel_gradient_fast, total_mass_all_channels,
+    CachedConvolver, FftScratch, FrequencyKernel, Kernel, advect_mass_into,
+    compute_flow_field_into, growth_accumulate, sobel_gradient_into, total_mass_all_channels,
 };
 
 /// Simulation state container.
@@ -88,6 +88,26 @@ pub struct CpuPropagator {
     next_channels: Vec<Vec<f32>>,
     /// Pre-allocated buffer for channel sum.
     channel_sum_buffer: Vec<f32>,
+    /// Pre-allocated buffers for mass gradient (shared across channels).
+    grad_a_x: Vec<f32>,
+    grad_a_y: Vec<f32>,
+    /// Pre-allocated buffers for per-channel computations.
+    /// Each channel has its own buffers for parallel processing.
+    per_channel_scratch: Vec<ChannelScratch>,
+    /// Pre-allocated FFT scratch buffers per kernel (for parallel convolution).
+    /// Native: one per kernel for parallel processing.
+    /// WASM: just one (index 0) is used.
+    fft_scratch: Vec<FftScratch>,
+    /// Pre-allocated convolution output buffers per kernel.
+    conv_outputs: Vec<Vec<f32>>,
+}
+
+/// Per-channel scratch buffers for gradient and flow computation.
+struct ChannelScratch {
+    grad_u_x: Vec<f32>,
+    grad_u_y: Vec<f32>,
+    flow_x: Vec<f32>,
+    flow_y: Vec<f32>,
 }
 
 impl CpuPropagator {
@@ -130,12 +150,46 @@ impl CpuPropagator {
         let next_channels = vec![vec![0.0f32; grid_size]; channels];
         let channel_sum_buffer = vec![0.0f32; grid_size];
 
+        // Pre-allocate gradient buffers for mass gradient
+        let grad_a_x = vec![0.0f32; grid_size];
+        let grad_a_y = vec![0.0f32; grid_size];
+
+        // Pre-allocate per-channel scratch buffers
+        let per_channel_scratch = (0..channels)
+            .map(|_| ChannelScratch {
+                grad_u_x: vec![0.0f32; grid_size],
+                grad_u_y: vec![0.0f32; grid_size],
+                flow_x: vec![0.0f32; grid_size],
+                flow_y: vec![0.0f32; grid_size],
+            })
+            .collect();
+
+        // Pre-allocate FFT scratch buffers for parallel convolution
+        // Native: one per kernel for parallel processing
+        // WASM: just one is sufficient
+        let num_kernels = convolver.kernels().len();
+        #[cfg(not(target_arch = "wasm32"))]
+        let fft_scratch: Vec<FftScratch> = (0..num_kernels)
+            .map(|_| FftScratch::new(&convolver))
+            .collect();
+        #[cfg(target_arch = "wasm32")]
+        let fft_scratch: Vec<FftScratch> = vec![FftScratch::new(&convolver)];
+
+        // Pre-allocate convolution output buffers
+        let conv_outputs: Vec<Vec<f32>> =
+            (0..num_kernels).map(|_| vec![0.0f32; grid_size]).collect();
+
         Self {
             config,
             convolver,
             affinity,
             next_channels,
             channel_sum_buffer,
+            grad_a_x,
+            grad_a_y,
+            per_channel_scratch,
+            fft_scratch,
+            conv_outputs,
         }
     }
 
@@ -155,46 +209,48 @@ impl CpuPropagator {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // Native: Parallel convolutions, then sequential accumulation
-            let conv_results: Vec<_> = self
-                .convolver
-                .kernels()
-                .par_iter()
+            // Native: Parallel convolutions using pre-allocated scratch buffers
+            let convolver = &self.convolver;
+            let state_channels = &state.channels;
+
+            // Parallel convolution: each kernel gets its own scratch and output buffer
+            self.fft_scratch
+                .par_iter_mut()
+                .zip(self.conv_outputs.par_iter_mut())
                 .enumerate()
-                .map(|(kernel_idx, kernel)| {
-                    let source = &state.channels[kernel.source_channel];
-                    let conv_result = self.convolver.convolve_with_kernel(source, kernel_idx);
-                    (
-                        kernel.target_channel,
-                        kernel.weight,
-                        kernel.mu,
-                        kernel.sigma,
-                        conv_result,
-                    )
-                })
-                .collect();
+                .for_each(|(kernel_idx, (scratch, output))| {
+                    let kernel = &convolver.kernels()[kernel_idx];
+                    let source = &state_channels[kernel.source_channel];
+                    convolver.convolve_with_kernel_scratch(source, kernel_idx, scratch, output);
+                });
 
             // Accumulate results sequentially (writes to shared buffers)
-            for (target_channel, weight, mu, sigma, conv_result) in conv_results {
+            for (kernel_idx, conv_result) in self.conv_outputs.iter().enumerate() {
+                let kernel = &self.convolver.kernels()[kernel_idx];
                 growth_accumulate(
-                    &conv_result,
-                    &mut self.affinity[target_channel],
-                    weight,
-                    mu,
-                    sigma,
+                    conv_result,
+                    &mut self.affinity[kernel.target_channel],
+                    kernel.weight,
+                    kernel.mu,
+                    kernel.sigma,
                 );
             }
         }
 
         #[cfg(target_arch = "wasm32")]
         {
-            // WASM: Sequential processing
+            // WASM: Sequential processing with single scratch buffer
             for (kernel_idx, kernel) in self.convolver.kernels().iter().enumerate() {
                 let source = &state.channels[kernel.source_channel];
-                let conv_result = self.convolver.convolve_with_kernel(source, kernel_idx);
+                self.convolver.convolve_with_kernel_scratch(
+                    source,
+                    kernel_idx,
+                    &mut self.fft_scratch[0],
+                    &mut self.conv_outputs[kernel_idx],
+                );
 
                 growth_accumulate(
-                    &conv_result,
+                    &self.conv_outputs[kernel_idx],
                     &mut self.affinity[kernel.target_channel],
                     kernel.weight,
                     kernel.mu,
@@ -211,42 +267,59 @@ impl CpuPropagator {
             }
         }
 
-        // 3. Gradient Stage
-        let (grad_a_x, grad_a_y) = sobel_gradient_fast(&self.channel_sum_buffer, width, height);
+        // 3. Gradient Stage - compute mass gradient into pre-allocated buffers
+        sobel_gradient_into(
+            &self.channel_sum_buffer,
+            &mut self.grad_a_x,
+            &mut self.grad_a_y,
+            width,
+            height,
+        );
 
         // 4. Flow Stage - compute per-channel flow fields and advect
         let flow_config = &self.config.flow;
         let channel_sum = &self.channel_sum_buffer;
         let distribution_size = flow_config.distribution_size;
+        let grad_a_x = &self.grad_a_x;
+        let grad_a_y = &self.grad_a_y;
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             // Native: Parallel channel processing
-            // Each channel is processed independently with its own affinity and output buffer
+            // Each channel is processed independently with its own scratch buffers
             self.affinity
                 .par_iter()
                 .zip(state.channels.par_iter())
                 .zip(self.next_channels.par_iter_mut())
-                .for_each(|((affinity, current), next)| {
-                    // Gradient of affinity for this channel
-                    let (grad_u_x, grad_u_y) = sobel_gradient_fast(affinity, width, height);
+                .zip(self.per_channel_scratch.par_iter_mut())
+                .for_each(|(((affinity, current), next), scratch)| {
+                    // Gradient of affinity for this channel (into pre-allocated buffers)
+                    sobel_gradient_into(
+                        affinity,
+                        &mut scratch.grad_u_x,
+                        &mut scratch.grad_u_y,
+                        width,
+                        height,
+                    );
 
-                    // Compute flow field
-                    let (fx, fy) = compute_flow_field(
-                        &grad_u_x,
-                        &grad_u_y,
-                        &grad_a_x,
-                        &grad_a_y,
+                    // Compute flow field (into pre-allocated buffers)
+                    compute_flow_field_into(
+                        &scratch.grad_u_x,
+                        &scratch.grad_u_y,
+                        grad_a_x,
+                        grad_a_y,
                         channel_sum,
                         flow_config,
+                        &mut scratch.flow_x,
+                        &mut scratch.flow_y,
                     );
 
                     // 5. Reintegration Stage - advect mass into pre-allocated buffer
                     next.fill(0.0);
                     advect_mass_into(
                         current,
-                        &fx,
-                        &fy,
+                        &scratch.flow_x,
+                        &scratch.flow_y,
                         next,
                         width,
                         height,
@@ -258,24 +331,37 @@ impl CpuPropagator {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // WASM: Sequential processing
+            // WASM: Sequential processing with pre-allocated buffers
             for c in 0..self.config.channels {
-                let (grad_u_x, grad_u_y) = sobel_gradient_fast(&self.affinity[c], width, height);
+                let scratch = &mut self.per_channel_scratch[c];
 
-                let (fx, fy) = compute_flow_field(
-                    &grad_u_x,
-                    &grad_u_y,
-                    &grad_a_x,
-                    &grad_a_y,
-                    channel_sum,
-                    flow_config,
+                // Gradient of affinity
+                sobel_gradient_into(
+                    &self.affinity[c],
+                    &mut scratch.grad_u_x,
+                    &mut scratch.grad_u_y,
+                    width,
+                    height,
                 );
 
+                // Compute flow field
+                compute_flow_field_into(
+                    &scratch.grad_u_x,
+                    &scratch.grad_u_y,
+                    grad_a_x,
+                    grad_a_y,
+                    channel_sum,
+                    flow_config,
+                    &mut scratch.flow_x,
+                    &mut scratch.flow_y,
+                );
+
+                // Advect mass
                 self.next_channels[c].fill(0.0);
                 advect_mass_into(
                     &state.channels[c],
-                    &fx,
-                    &fy,
+                    &scratch.flow_x,
+                    &scratch.flow_y,
                     &mut self.next_channels[c],
                     width,
                     height,

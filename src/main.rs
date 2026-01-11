@@ -1,5 +1,9 @@
 //! Flow Lenia CLI - Run simulations from JSON configuration.
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -10,6 +14,9 @@ use flow_lenia::{
 };
 
 fn main() {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     env_logger::init();
 
     let args: Vec<String> = std::env::args().collect();

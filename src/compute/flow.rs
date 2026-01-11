@@ -48,7 +48,33 @@ pub fn compute_flow_field(
     let len = grad_u_x.len();
     let mut flow_x = vec![0.0f32; len];
     let mut flow_y = vec![0.0f32; len];
+    compute_flow_field_into(
+        grad_u_x,
+        grad_u_y,
+        grad_a_x,
+        grad_a_y,
+        mass_sum,
+        config,
+        &mut flow_x,
+        &mut flow_y,
+    );
+    (flow_x, flow_y)
+}
 
+/// Compute flow field into pre-allocated buffers.
+/// This is the allocation-free version for use with pre-allocated buffers.
+#[inline]
+pub fn compute_flow_field_into(
+    grad_u_x: &[f32],
+    grad_u_y: &[f32],
+    grad_a_x: &[f32],
+    grad_a_y: &[f32],
+    mass_sum: &[f32],
+    config: &FlowConfig,
+    flow_x: &mut [f32],
+    flow_y: &mut [f32],
+) {
+    let len = grad_u_x.len();
     for i in 0..len {
         let alpha = compute_alpha(mass_sum[i], config.beta_a, config.n);
         let one_minus_alpha = 1.0 - alpha;
@@ -57,8 +83,6 @@ pub fn compute_flow_field(
         flow_x[i] = one_minus_alpha * grad_u_x[i] - alpha * grad_a_x[i];
         flow_y[i] = one_minus_alpha * grad_u_y[i] - alpha * grad_a_y[i];
     }
-
-    (flow_x, flow_y)
 }
 
 /// Compute flow field per channel (when channels have separate affinities).

@@ -20,6 +20,7 @@ path = "src/main.rs"
 default = ["native"]
 native = []  # Marks native build
 wasm = []    # Marks WASM build
+dhat-heap = ["dhat"]  # Heap profiling
 
 [dependencies]
 # FFT for fast convolution (WASM-compatible)
@@ -37,6 +38,9 @@ thiserror = "2.0"
 
 # Logging
 log = "0.4"
+
+# Optional: Heap profiling
+dhat = { version = "0.3", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Native-only: Parallel computation

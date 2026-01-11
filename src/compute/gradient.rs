@@ -58,7 +58,20 @@ pub fn gradient_magnitude(grad_x: &[f32], grad_y: &[f32]) -> Vec<f32> {
 pub fn sobel_gradient_fast(grid: &[f32], width: usize, height: usize) -> (Vec<f32>, Vec<f32>) {
     let mut grad_x = vec![0.0f32; width * height];
     let mut grad_y = vec![0.0f32; width * height];
+    sobel_gradient_into(grid, &mut grad_x, &mut grad_y, width, height);
+    (grad_x, grad_y)
+}
 
+/// Compute Sobel gradient into pre-allocated buffers.
+/// This is the allocation-free version for use with pre-allocated buffers.
+#[inline]
+pub fn sobel_gradient_into(
+    grid: &[f32],
+    grad_x: &mut [f32],
+    grad_y: &mut [f32],
+    width: usize,
+    height: usize,
+) {
     // Process in row-major order for cache efficiency
     for y in 0..height {
         let y_prev = (y + height - 1) % height;
@@ -92,8 +105,6 @@ pub fn sobel_gradient_fast(grid: &[f32], width: usize, height: usize) -> (Vec<f3
             grad_y[row_curr + x] = gy;
         }
     }
-
-    (grad_x, grad_y)
 }
 
 #[cfg(test)]

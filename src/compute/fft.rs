@@ -7,6 +7,45 @@ use std::sync::Arc;
 use num_complex::Complex;
 use rustfft::{Fft, FftPlanner};
 
+/// Pre-allocated scratch buffers for FFT operations.
+/// Each thread/parallel task should have its own FftScratch to avoid allocation.
+pub struct FftScratch {
+    /// Scratch for row FFT
+    pub row_scratch: Vec<Complex<f32>>,
+    /// Scratch for column FFT
+    pub col_scratch: Vec<Complex<f32>>,
+    /// Column extraction buffer
+    pub col_buffer: Vec<Complex<f32>>,
+    /// Input frequency buffer
+    pub input_freq: Vec<Complex<f32>>,
+    /// Result frequency buffer
+    pub result_freq: Vec<Complex<f32>>,
+}
+
+impl FftScratch {
+    /// Create new scratch buffers sized for the given convolver.
+    pub fn new(convolver: &CachedConvolver) -> Self {
+        let row_scratch_len = convolver.fft_row.get_inplace_scratch_len();
+        let col_scratch_len = convolver.fft_col.get_inplace_scratch_len();
+        let ifft_row_scratch_len = convolver.ifft_row.get_inplace_scratch_len();
+        let ifft_col_scratch_len = convolver.ifft_col.get_inplace_scratch_len();
+
+        // Use max of forward/inverse scratch requirements
+        let max_row_scratch = row_scratch_len.max(ifft_row_scratch_len);
+        let max_col_scratch = col_scratch_len.max(ifft_col_scratch_len);
+
+        let grid_size = convolver.width * convolver.height;
+
+        Self {
+            row_scratch: vec![Complex::new(0.0, 0.0); max_row_scratch],
+            col_scratch: vec![Complex::new(0.0, 0.0); max_col_scratch],
+            col_buffer: vec![Complex::new(0.0, 0.0); convolver.height],
+            input_freq: vec![Complex::new(0.0, 0.0); grid_size],
+            result_freq: vec![Complex::new(0.0, 0.0); grid_size],
+        }
+    }
+}
+
 /// FFT convolution engine with cached plans.
 pub struct FftConvolver {
     width: usize,
@@ -185,6 +224,18 @@ impl CachedConvolver {
         &self.kernels
     }
 
+    /// Get grid width.
+    #[inline]
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Get grid height.
+    #[inline]
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
     /// Convolve input with precomputed kernel at given index.
     /// Uses cached FFT plans for efficiency.
     pub fn convolve_with_kernel(&self, input: &[f32], kernel_idx: usize) -> Vec<f32> {
@@ -200,6 +251,123 @@ impl CachedConvolver {
             .collect();
 
         self.ifft2d_cached(&mut result_freq)
+    }
+
+    /// Convolve input with precomputed kernel using scratch buffers.
+    /// Avoids allocation by using pre-allocated scratch space.
+    #[inline]
+    pub fn convolve_with_kernel_scratch(
+        &self,
+        input: &[f32],
+        kernel_idx: usize,
+        scratch: &mut FftScratch,
+        output: &mut [f32],
+    ) {
+        // Forward FFT into scratch.input_freq
+        self.fft2d_into(
+            input,
+            &mut scratch.input_freq,
+            &mut scratch.row_scratch,
+            &mut scratch.col_scratch,
+            &mut scratch.col_buffer,
+        );
+
+        let kernel = &self.kernels[kernel_idx];
+
+        // Pointwise multiplication into scratch.result_freq
+        for (i, (inp, k)) in scratch
+            .input_freq
+            .iter()
+            .zip(kernel.data.iter())
+            .enumerate()
+        {
+            scratch.result_freq[i] = inp * k;
+        }
+
+        // Inverse FFT into output
+        self.ifft2d_into(
+            &mut scratch.result_freq,
+            output,
+            &mut scratch.row_scratch,
+            &mut scratch.col_scratch,
+            &mut scratch.col_buffer,
+        );
+    }
+
+    /// Perform 2D FFT into pre-allocated output buffer using individual scratch buffers.
+    #[inline]
+    fn fft2d_into(
+        &self,
+        input: &[f32],
+        output: &mut [Complex<f32>],
+        row_scratch: &mut [Complex<f32>],
+        col_scratch: &mut [Complex<f32>],
+        col_buffer: &mut [Complex<f32>],
+    ) {
+        // Convert input to complex
+        for (i, &x) in input.iter().enumerate() {
+            output[i] = Complex::new(x, 0.0);
+        }
+
+        // Row-wise FFT using cached plan
+        for row in output.chunks_exact_mut(self.width) {
+            self.fft_row.process_with_scratch(row, row_scratch);
+        }
+
+        // Column-wise FFT
+        for x in 0..self.width {
+            // Extract column
+            for y in 0..self.height {
+                col_buffer[y] = output[y * self.width + x];
+            }
+
+            // FFT column using cached plan
+            self.fft_col.process_with_scratch(col_buffer, col_scratch);
+
+            // Write back
+            for y in 0..self.height {
+                output[y * self.width + x] = col_buffer[y];
+            }
+        }
+    }
+
+    /// Perform inverse 2D FFT into pre-allocated output buffer using individual scratch buffers.
+    /// Note: freq_data is modified in place during computation.
+    #[inline]
+    fn ifft2d_into(
+        &self,
+        freq_data: &mut [Complex<f32>],
+        output: &mut [f32],
+        row_scratch: &mut [Complex<f32>],
+        col_scratch: &mut [Complex<f32>],
+        col_buffer: &mut [Complex<f32>],
+    ) {
+        // Column-wise IFFT
+        for x in 0..self.width {
+            // Extract column
+            for y in 0..self.height {
+                col_buffer[y] = freq_data[y * self.width + x];
+            }
+
+            // IFFT column using cached plan
+            self.ifft_col.process_with_scratch(col_buffer, col_scratch);
+
+            // Write back
+            for y in 0..self.height {
+                freq_data[y * self.width + x] = col_buffer[y];
+            }
+        }
+
+        // Row-wise IFFT using cached plan
+        for row in freq_data.chunks_exact_mut(self.width) {
+            self.ifft_row.process_with_scratch(row, row_scratch);
+        }
+
+        // Normalize and extract real part
+        let scale = 1.0 / (self.width * self.height) as f32;
+        for (i, c) in freq_data.iter().enumerate() {
+            output[i] = c.re * scale;
+        }
     }
 
     /// Perform 2D FFT using cached plans.
