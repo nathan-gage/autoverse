@@ -30,7 +30,11 @@
 		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 	}
 
-	// Update glow layer - simulation acts as a mask for UI glow
+	// Offscreen canvas for mask processing
+	let maskCanvas: HTMLCanvasElement | null = null;
+	let maskCtx: CanvasRenderingContext2D | null = null;
+
+	// Update glow layer - simulation brightness controls glow visibility
 	function updateGlowLayer() {
 		const srcCanvas = $simulationCanvas;
 		if (!srcCanvas || !glowCtx || !glowCanvas) {
@@ -38,43 +42,76 @@
 			return;
 		}
 
-		// Resize glow canvas to match container
+		// Initialize mask canvas if needed
+		if (!maskCanvas) {
+			maskCanvas = document.createElement("canvas");
+			maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
+		}
+
+		// Resize canvases to match container
 		if (appContainer) {
 			const rect = appContainer.getBoundingClientRect();
-			if (glowCanvas.width !== rect.width || glowCanvas.height !== rect.height) {
+			const needsResize = glowCanvas.width !== rect.width || glowCanvas.height !== rect.height;
+			const needsInit = maskCanvas.width === 0 || maskCanvas.height === 0;
+
+			if (needsResize || needsInit) {
 				glowCanvas.width = rect.width;
 				glowCanvas.height = rect.height;
+				maskCanvas.width = rect.width;
+				maskCanvas.height = rect.height;
 			}
 		}
+
+		if (!maskCtx || maskCanvas.width === 0) return;
 
 		const w = glowCanvas.width;
 		const h = glowCanvas.height;
 		const colors = $currentScheme.colors;
 
-		// Clear canvas
+		// Step 1: Draw simulation to mask canvas (stretched) and convert to alpha mask
+		maskCtx.drawImage(srcCanvas, 0, 0, w, h);
+		const imageData = maskCtx.getImageData(0, 0, w, h);
+		const data = imageData.data;
+
+		// Convert brightness to alpha, subtracting colormap floor
+		// Viridis at mass=0 is ~rgb(68,1,84) = brightness 51
+		const floorBrightness = 51;
+		const brightnessRange = 255 - floorBrightness;
+
+		for (let i = 0; i < data.length; i += 4) {
+			const rawBrightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+			const adjusted = Math.max(0, rawBrightness - floorBrightness);
+			const normalized = adjusted / brightnessRange;
+			const curved = Math.pow(normalized, 0.35); // Boost low values
+			data[i] = 255;     // R - white
+			data[i + 1] = 255; // G - white
+			data[i + 2] = 255; // B - white
+			data[i + 3] = curved * 255;
+		}
+		maskCtx.putImageData(imageData, 0, 0);
+
+		// Step 2: Draw UI glow colors to main canvas (thin edge regions)
 		glowCtx.clearRect(0, 0, w, h);
 
-		// Step 1: Draw simulation as base (stretched to fill)
-		glowCtx.drawImage(srcCanvas, 0, 0, w, h);
+		// Left sidebar - thin strip along right edge where it meets content
+		glowCtx.fillStyle = colors.primary;
+		glowCtx.fillRect(180, 0, 80, h); // Just the edge area
 
-		// Step 2: Tint with theme colors using screen blend
-		glowCtx.globalCompositeOperation = "screen";
+		// Right sidebar - thin strip along left edge where it meets content
+		glowCtx.fillStyle = colors.secondary;
+		glowCtx.fillRect(w - 220, 0, 80, h);
 
-		// Left side - primary color
-		const leftGradient = glowCtx.createRadialGradient(0, h/2, 0, 0, h/2, w * 0.7);
-		leftGradient.addColorStop(0, hexToRgba(colors.primary, 0.6));
-		leftGradient.addColorStop(1, "transparent");
-		glowCtx.fillStyle = leftGradient;
-		glowCtx.fillRect(0, 0, w, h);
+		// Header bottom edge
+		glowCtx.fillStyle = colors.tertiary;
+		glowCtx.fillRect(0, 30, w, 40);
 
-		// Right side - secondary color
-		const rightGradient = glowCtx.createRadialGradient(w, h/2, 0, w, h/2, w * 0.7);
-		rightGradient.addColorStop(0, hexToRgba(colors.secondary, 0.6));
-		rightGradient.addColorStop(1, "transparent");
-		glowCtx.fillStyle = rightGradient;
-		glowCtx.fillRect(0, 0, w, h);
+		// Footer top edge
+		glowCtx.fillStyle = colors.tertiary;
+		glowCtx.fillRect(0, h - 60, w, 40);
 
-		// Reset composite operation
+		// Step 3: Apply mask - use destination-in with the alpha mask
+		glowCtx.globalCompositeOperation = "destination-in";
+		glowCtx.drawImage(maskCanvas, 0, 0);
 		glowCtx.globalCompositeOperation = "source-over";
 
 		animationFrame = requestAnimationFrame(updateGlowLayer);
@@ -239,14 +276,14 @@
 	/* Canvas-based glow layer - UI colors masked by simulation mass */
 	.glow-layer {
 		position: absolute;
-		top: -100px;
-		left: -100px;
-		width: calc(100% + 200px);
-		height: calc(100% + 200px);
+		top: -50px;
+		left: -50px;
+		width: calc(100% + 100px);
+		height: calc(100% + 100px);
 		pointer-events: none;
 		z-index: 0;
-		filter: blur(120px);
-		opacity: 0.4;
+		filter: blur(60px);
+		opacity: 0.7;
 		mix-blend-mode: screen;
 	}
 </style>
