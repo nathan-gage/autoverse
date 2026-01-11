@@ -50,19 +50,20 @@ cargo run --release -- --example
 ### WebAssembly Build
 
 ```bash
-# Install wasm-pack
-cargo install wasm-pack
+# Build WASM
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli
+cargo build --lib --target wasm32-unknown-unknown --release
+wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/flow_lenia.wasm
 
-# Build for web
-wasm-pack build --target web --release
-
-# Run web demo
-cd examples/web
-python3 -m http.server 8000
-# Open http://localhost:8000
+# Run interactive web viewer
+cd web
+bun install
+bun run dev
+# Open http://localhost:3000
 ```
 
-See [WASM.md](WASM.md) for detailed WebAssembly documentation.
+See [WASM.md](WASM.md) for detailed WebAssembly documentation and [web/CLAUDE.md](web/CLAUDE.md) for the web viewer.
 
 ## Configuration
 
