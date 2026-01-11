@@ -33,9 +33,9 @@ const DEFAULT_CONFIG: SimulationConfig = {
 		},
 	],
 	flow: {
-		beta_a: 1.0,
-		n: 2.0,
-		distribution_size: 1.0,
+		beta_a: 2.0,
+		n: 4.0,
+		distribution_size: 0.5,
 	},
 };
 
