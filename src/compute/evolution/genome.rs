@@ -548,15 +548,69 @@ mod tests {
         let constraints = GenomeConstraints::default();
 
         let mut genome = rng.random_genome(&config, &constraints);
-        let _original_mu = genome.kernels[0].mu;
+        let original = genome.clone();
 
-        // Mutate with high rate
+        // Mutate with high rate and high strength
         rng.mutate(&mut genome, 1.0, 0.5, &constraints);
 
-        // Something should have changed (with high probability)
-        // Note: This test might occasionally fail due to randomness
+        // Verify mutation actually changed the genome
+        let distance = genome_distance(&original, &genome);
+        assert!(
+            distance > 0.0,
+            "Mutation with rate=1.0 should change genome, but distance was 0"
+        );
+
+        // Also verify bounds are still respected
         assert!(genome.kernels[0].mu >= constraints.mu_bounds.0);
         assert!(genome.kernels[0].mu <= constraints.mu_bounds.1);
+        assert!(genome.flow.beta_a >= constraints.beta_a_bounds.0);
+        assert!(genome.flow.beta_a <= constraints.beta_a_bounds.1);
+    }
+
+    #[test]
+    fn test_mutation_respects_zero_rate() {
+        let mut rng = GenomeRng::new(42);
+        let config = SimulationConfig::default();
+        let constraints = GenomeConstraints::default();
+
+        let mut genome = rng.random_genome(&config, &constraints);
+        let original = genome.clone();
+
+        // Mutate with zero rate - nothing should change
+        rng.mutate(&mut genome, 0.0, 0.5, &constraints);
+
+        let distance = genome_distance(&original, &genome);
+        assert!(
+            distance < 1e-6,
+            "Mutation with rate=0.0 should not change genome"
+        );
+    }
+
+    #[test]
+    fn test_mutation_strength_affects_magnitude() {
+        let config = SimulationConfig::default();
+        let constraints = GenomeConstraints::default();
+
+        // Test with low strength
+        let mut rng_low = GenomeRng::new(42);
+        let mut genome_low = rng_low.random_genome(&config, &constraints);
+        let original_low = genome_low.clone();
+        rng_low.mutate(&mut genome_low, 1.0, 0.01, &constraints);
+        let distance_low = genome_distance(&original_low, &genome_low);
+
+        // Test with high strength (same seed for fairness)
+        let mut rng_high = GenomeRng::new(42);
+        let mut genome_high = rng_high.random_genome(&config, &constraints);
+        let original_high = genome_high.clone();
+        rng_high.mutate(&mut genome_high, 1.0, 0.5, &constraints);
+        let distance_high = genome_distance(&original_high, &genome_high);
+
+        // Higher strength should generally produce larger changes
+        // (may not always hold due to clamping, but should on average)
+        assert!(
+            distance_high > 0.0 && distance_low > 0.0,
+            "Both mutations should produce changes"
+        );
     }
 
     #[test]

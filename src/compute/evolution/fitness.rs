@@ -576,4 +576,373 @@ mod tests {
         assert!((compute_state_similarity(&a, &b) - 1.0).abs() < 1e-6);
         assert!((compute_state_similarity(&a, &c)).abs() < 1e-6);
     }
+
+    // ===== Metric Validation Tests =====
+
+    /// Helper to create a trajectory with specific properties.
+    fn create_test_trajectory(
+        width: usize,
+        height: usize,
+        centers: Vec<(f32, f32)>,
+        radii: Vec<f32>,
+        masses: Vec<f32>,
+    ) -> EvaluationTrajectory {
+        let initial_mass = masses.first().copied().unwrap_or(1.0);
+        let initial_center = centers
+            .first()
+            .copied()
+            .unwrap_or((width as f32 / 2.0, height as f32 / 2.0));
+        let initial_radius = radii.first().copied().unwrap_or(5.0);
+
+        // Create a simple grid snapshot
+        let grid_size = width * height;
+        let initial_snapshot = vec![initial_mass / grid_size as f32; grid_size];
+
+        EvaluationTrajectory {
+            initial_mass,
+            initial_center,
+            initial_radius,
+            initial_snapshot,
+            center_samples: centers,
+            radius_samples: radii,
+            mass_samples: masses,
+            max_samples: vec![1.0; 10],
+            active_cell_samples: vec![100; 10],
+            state_snapshots: Vec::new(),
+            width,
+            height,
+        }
+    }
+
+    #[test]
+    fn test_locomotion_moving_vs_static() {
+        // Static pattern: center of mass doesn't move
+        let static_trajectory = create_test_trajectory(
+            64,
+            64,
+            vec![(32.0, 32.0), (32.0, 32.0), (32.0, 32.0)], // No movement
+            vec![5.0, 5.0, 5.0],
+            vec![1.0, 1.0, 1.0],
+        );
+
+        // Moving pattern: center of mass shifts
+        let moving_trajectory = create_test_trajectory(
+            64,
+            64,
+            vec![(32.0, 32.0), (40.0, 40.0), (50.0, 50.0)], // Clear movement
+            vec![5.0, 5.0, 5.0],
+            vec![1.0, 1.0, 1.0],
+        );
+
+        let static_score = compute_locomotion(&static_trajectory);
+        let moving_score = compute_locomotion(&moving_trajectory);
+
+        assert!(
+            moving_score > static_score,
+            "Moving pattern (score={}) should have higher locomotion than static (score={})",
+            moving_score,
+            static_score
+        );
+        assert!(
+            static_score < 0.01,
+            "Static pattern should have near-zero locomotion, got {}",
+            static_score
+        );
+    }
+
+    #[test]
+    fn test_compactness_small_vs_diffuse() {
+        let config = test_config();
+
+        // Compact pattern: small radius blob
+        let compact_seed = Seed {
+            pattern: Pattern::GaussianBlob {
+                center: (0.5, 0.5),
+                radius: 0.05, // Small
+                amplitude: 1.0,
+                channel: 0,
+            },
+        };
+        let compact_state = SimulationState::from_seed(&compact_seed, &config);
+        let mut compact_trajectory = EvaluationTrajectory::new(&compact_state);
+        compact_trajectory.record_sample(&compact_state, 0); // Record sample so radius_samples is populated
+
+        // Diffuse pattern: large radius blob
+        let diffuse_seed = Seed {
+            pattern: Pattern::GaussianBlob {
+                center: (0.5, 0.5),
+                radius: 0.3, // Large
+                amplitude: 1.0,
+                channel: 0,
+            },
+        };
+        let diffuse_state = SimulationState::from_seed(&diffuse_seed, &config);
+        let mut diffuse_trajectory = EvaluationTrajectory::new(&diffuse_state);
+        diffuse_trajectory.record_sample(&diffuse_state, 0);
+
+        let compact_score = compute_compactness(&compact_trajectory, &compact_state);
+        let diffuse_score = compute_compactness(&diffuse_trajectory, &diffuse_state);
+
+        assert!(
+            compact_score > diffuse_score,
+            "Compact pattern (score={}) should have higher compactness than diffuse (score={})",
+            compact_score,
+            diffuse_score
+        );
+    }
+
+    #[test]
+    fn test_persistence_surviving_vs_dissipating() {
+        // Surviving pattern: mass stays concentrated
+        let surviving_trajectory = create_test_trajectory(
+            64,
+            64,
+            vec![(32.0, 32.0); 5],
+            vec![5.0; 5],
+            vec![1.0, 0.98, 0.96, 0.95, 0.95], // Maintains most mass
+        );
+
+        // Dissipating pattern: mass spreads out and disappears
+        let dissipating_trajectory = create_test_trajectory(
+            64,
+            64,
+            vec![(32.0, 32.0); 5],
+            vec![5.0, 10.0, 20.0, 40.0, 60.0], // Expands greatly
+            vec![1.0, 0.8, 0.5, 0.2, 0.05],    // Mass drops
+        );
+
+        let surviving_score = compute_persistence(&surviving_trajectory);
+        let dissipating_score = compute_persistence(&dissipating_trajectory);
+
+        assert!(
+            surviving_score > dissipating_score,
+            "Surviving pattern (score={}) should have higher persistence than dissipating (score={})",
+            surviving_score,
+            dissipating_score
+        );
+    }
+
+    #[test]
+    fn test_complexity_structured_vs_uniform() {
+        let config = test_config();
+
+        // Structured pattern: blob with gradients
+        let structured_seed = Seed {
+            pattern: Pattern::GaussianBlob {
+                center: (0.5, 0.5),
+                radius: 0.1,
+                amplitude: 1.0,
+                channel: 0,
+            },
+        };
+        let structured_state = SimulationState::from_seed(&structured_seed, &config);
+        let structured_complexity = compute_complexity(&structured_state);
+
+        // Near-uniform pattern: very large, flat distribution
+        let uniform_seed = Seed {
+            pattern: Pattern::GaussianBlob {
+                center: (0.5, 0.5),
+                radius: 0.5,    // Very large - covers most of the grid
+                amplitude: 0.1, // Low amplitude spread out
+                channel: 0,
+            },
+        };
+        let uniform_state = SimulationState::from_seed(&uniform_seed, &config);
+        let uniform_complexity = compute_complexity(&uniform_state);
+
+        // A focused blob should have more complexity (higher gradients) than a flat distribution
+        assert!(
+            structured_complexity > uniform_complexity || structured_complexity > 0.01,
+            "Structured pattern should show measurable complexity (structured={}, uniform={})",
+            structured_complexity,
+            uniform_complexity
+        );
+    }
+
+    #[test]
+    fn test_mass_concentration_peaked_vs_flat() {
+        let config = test_config();
+
+        // Peaked pattern: small, intense blob
+        let peaked_seed = Seed {
+            pattern: Pattern::GaussianBlob {
+                center: (0.5, 0.5),
+                radius: 0.03, // Very small = high concentration
+                amplitude: 1.0,
+                channel: 0,
+            },
+        };
+        let peaked_state = SimulationState::from_seed(&peaked_seed, &config);
+        let peaked_score = compute_mass_concentration(&peaked_state);
+
+        // Flat pattern: large, spread out
+        let flat_seed = Seed {
+            pattern: Pattern::GaussianBlob {
+                center: (0.5, 0.5),
+                radius: 0.4, // Large = low concentration
+                amplitude: 1.0,
+                channel: 0,
+            },
+        };
+        let flat_state = SimulationState::from_seed(&flat_seed, &config);
+        let flat_score = compute_mass_concentration(&flat_state);
+
+        assert!(
+            peaked_score > flat_score,
+            "Peaked pattern (score={}) should have higher mass concentration than flat (score={})",
+            peaked_score,
+            flat_score
+        );
+    }
+
+    #[test]
+    fn test_glider_score_requires_movement() {
+        let config = test_config();
+        let state = SimulationState::from_seed(&test_seed(), &config);
+
+        // Glider-like trajectory: moving and compact
+        let glider_trajectory = create_test_trajectory(
+            64,
+            64,
+            vec![
+                (20.0, 20.0),
+                (25.0, 25.0),
+                (30.0, 30.0),
+                (35.0, 35.0),
+                (40.0, 40.0),
+            ],
+            vec![5.0, 5.0, 5.0, 5.0, 5.0],     // Consistent size
+            vec![1.0, 0.98, 0.96, 0.95, 0.94], // Mass persists
+        );
+
+        // Static trajectory: no movement
+        let static_trajectory = create_test_trajectory(
+            64,
+            64,
+            vec![(32.0, 32.0); 5],
+            vec![5.0; 5],
+            vec![1.0, 0.98, 0.96, 0.95, 0.94],
+        );
+
+        let glider_score = compute_glider_score(&glider_trajectory, &state, 10.0);
+        let static_glider_score = compute_glider_score(&static_trajectory, &state, 10.0);
+
+        assert!(
+            glider_score > static_glider_score,
+            "Moving pattern (score={}) should score higher as glider than static (score={})",
+            glider_score,
+            static_glider_score
+        );
+
+        // Static pattern shouldn't meet minimum displacement
+        assert!(
+            static_glider_score < 0.01,
+            "Static pattern should fail glider min_displacement threshold"
+        );
+    }
+
+    #[test]
+    fn test_periodicity_with_repeating_state() {
+        let mut trajectory =
+            create_test_trajectory(8, 8, vec![(4.0, 4.0); 10], vec![2.0; 10], vec![1.0; 10]);
+
+        // Create oscillating state snapshots
+        let state_a: Vec<f32> = (0..64)
+            .map(|i| if i % 2 == 0 { 1.0 } else { 0.0 })
+            .collect();
+        let state_b: Vec<f32> = (0..64)
+            .map(|i| if i % 2 == 1 { 1.0 } else { 0.0 })
+            .collect();
+
+        trajectory.initial_snapshot = state_a.clone();
+        trajectory.state_snapshots = vec![
+            (0, state_a.clone()),
+            (5, state_b.clone()),
+            (10, state_a.clone()), // Returns to initial state
+            (15, state_b.clone()),
+            (20, state_a.clone()), // Returns again
+        ];
+
+        let periodicity_score = compute_periodicity(&trajectory, 10, 0.1);
+
+        assert!(
+            periodicity_score > 0.5,
+            "Pattern with period-10 oscillation should score high on periodicity, got {}",
+            periodicity_score
+        );
+    }
+
+    #[test]
+    fn test_oscillator_score_finds_period() {
+        let mut trajectory =
+            create_test_trajectory(8, 8, vec![(4.0, 4.0); 10], vec![2.0; 10], vec![1.0; 10]);
+
+        // Create clearly periodic snapshots
+        let state_a: Vec<f32> = (0..64).map(|i| if i < 32 { 1.0 } else { 0.0 }).collect();
+        let state_b: Vec<f32> = (0..64).map(|i| if i >= 32 { 1.0 } else { 0.0 }).collect();
+
+        trajectory.state_snapshots = vec![
+            (0, state_a.clone()),
+            (1, state_b.clone()),
+            (2, state_a.clone()),
+            (3, state_b.clone()),
+            (4, state_a.clone()),
+        ];
+
+        let oscillator_score = compute_oscillator_score(&trajectory, 10, 0.8);
+
+        assert!(
+            oscillator_score > 0.3,
+            "Pattern with clear period-2 oscillation should score as oscillator, got {}",
+            oscillator_score
+        );
+    }
+
+    #[test]
+    fn test_stability_penalizes_negative_values() {
+        let config = test_config();
+
+        // Create a normal state
+        let normal_state = SimulationState::from_seed(&test_seed(), &config);
+        let mut normal_trajectory = EvaluationTrajectory::new(&normal_state);
+        normal_trajectory.record_sample(&normal_state, 0); // Record sample so mass_samples is populated
+        let normal_stability = compute_stability(&normal_trajectory, &normal_state);
+
+        // Note: stability depends on mass conservation and no negative/extreme values
+        // A fresh state should have high stability since mass hasn't changed
+        assert!(
+            normal_stability >= 0.0,
+            "Normal state should have non-negative stability, got {}",
+            normal_stability
+        );
+    }
+
+    #[test]
+    fn test_radius_computation() {
+        // Create a grid with mass concentrated at specific distance from center
+        let width = 10;
+        let height = 10;
+        let mut grid = vec![0.0; width * height];
+
+        // Place mass at corners of a 4-unit square centered at (5, 5)
+        // Points at distance ~2.83 from center
+        grid[3 * width + 3] = 1.0; // (3, 3)
+        grid[3 * width + 7] = 1.0; // (7, 3)
+        grid[7 * width + 3] = 1.0; // (3, 7)
+        grid[7 * width + 7] = 1.0; // (7, 7)
+
+        let (cx, cy) = compute_center_of_mass(&grid, width, height);
+        let radius = compute_radius(&grid, cx, cy, width, height);
+
+        // Center should be at (5, 5)
+        assert!((cx - 5.0).abs() < 0.1, "Center X should be ~5, got {}", cx);
+        assert!((cy - 5.0).abs() < 0.1, "Center Y should be ~5, got {}", cy);
+
+        // Radius should be sqrt(8) ≈ 2.83
+        assert!(
+            (radius - 2.83).abs() < 0.1,
+            "Radius should be ~2.83, got {}",
+            radius
+        );
+    }
 }

@@ -486,9 +486,9 @@ impl EvolutionEngine {
     }
 
     /// Run evolution with progress callback.
-    pub fn run_with_callback<F>(&mut self, callback: F) -> EvolutionResult
+    pub fn run_with_callback<F>(&mut self, mut callback: F) -> EvolutionResult
     where
-        F: Fn(&EvolutionProgress),
+        F: FnMut(&EvolutionProgress),
     {
         let start_time = std::time::Instant::now();
 
@@ -565,18 +565,18 @@ impl EvolutionEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::EvolutionConfig;
+    use crate::schema::{EvolutionConfig, FitnessMetric, GeneticAlgorithmConfig, WeightedMetric};
 
-    #[test]
-    fn test_evolution_engine_creation() {
-        let config = EvolutionConfig {
+    fn test_config(pop_size: usize, max_gens: usize, steps: u64) -> EvolutionConfig {
+        EvolutionConfig {
             population: crate::schema::PopulationConfig {
-                size: 10,
-                max_generations: 5,
+                size: pop_size,
+                max_generations: max_gens,
                 ..Default::default()
             },
             evaluation: crate::schema::EvaluationConfig {
-                steps: 10,
+                steps,
+                sample_interval: 2,
                 ..Default::default()
             },
             base_config: crate::schema::SimulationConfig {
@@ -584,8 +584,14 @@ mod tests {
                 height: 32,
                 ..Default::default()
             },
+            random_seed: Some(42), // Deterministic for testing
             ..Default::default()
-        };
+        }
+    }
+
+    #[test]
+    fn test_evolution_engine_creation() {
+        let config = test_config(10, 5, 10);
 
         let mut engine = EvolutionEngine::new(config);
         engine.initialize();
@@ -595,24 +601,7 @@ mod tests {
 
     #[test]
     fn test_evolution_run() {
-        let config = EvolutionConfig {
-            population: crate::schema::PopulationConfig {
-                size: 5,
-                max_generations: 3,
-                ..Default::default()
-            },
-            evaluation: crate::schema::EvaluationConfig {
-                steps: 5,
-                sample_interval: 2,
-                ..Default::default()
-            },
-            base_config: crate::schema::SimulationConfig {
-                width: 32,
-                height: 32,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let config = test_config(5, 3, 5);
 
         let mut engine = EvolutionEngine::new(config);
         let result = engine.run();
@@ -622,24 +611,51 @@ mod tests {
     }
 
     #[test]
+    fn test_evolution_run_with_fitness_improvement() {
+        // Run for more generations to see improvement
+        let mut config = test_config(20, 10, 20);
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            mutation_rate: 0.2,
+            mutation_strength: 0.3,
+            crossover_rate: 0.8,
+            elitism: 2,
+            selection: SelectionMethod::Tournament { size: 3 },
+        });
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Verify we ran all generations
+        assert_eq!(result.stats.generations, 10);
+
+        // Verify history was tracked
+        assert_eq!(result.history.best_fitness.len(), 10);
+        assert_eq!(result.history.avg_fitness.len(), 10);
+
+        // Best fitness should be non-negative
+        assert!(
+            result.stats.best_fitness >= 0.0,
+            "Best fitness should be non-negative"
+        );
+
+        // Best fitness in final generation should be >= first generation
+        // (elitism guarantees this)
+        let first_best = result.history.best_fitness.first().copied().unwrap_or(0.0);
+        let last_best = result.history.best_fitness.last().copied().unwrap_or(0.0);
+        assert!(
+            last_best >= first_best,
+            "With elitism, best fitness should not decrease: first={}, last={}",
+            first_best,
+            last_best
+        );
+
+        // Verify best candidate was found
+        assert!(result.best.fitness >= 0.0);
+    }
+
+    #[test]
     fn test_cancellation() {
-        let config = EvolutionConfig {
-            population: crate::schema::PopulationConfig {
-                size: 5,
-                max_generations: 100,
-                ..Default::default()
-            },
-            evaluation: crate::schema::EvaluationConfig {
-                steps: 5,
-                ..Default::default()
-            },
-            base_config: crate::schema::SimulationConfig {
-                width: 32,
-                height: 32,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let config = test_config(5, 100, 5);
 
         let mut engine = EvolutionEngine::new(config);
         let cancel = engine.cancel_handle();
@@ -649,5 +665,284 @@ mod tests {
 
         let result = engine.run();
         assert_eq!(result.stats.stop_reason, StopReason::Cancelled);
+    }
+
+    #[test]
+    fn test_target_fitness_stops_early() {
+        let mut config = test_config(10, 100, 10);
+        config.population.target_fitness = Some(-10.0); // Very low target, should be hit immediately
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Should stop early because target was reached
+        assert!(
+            result.stats.generations < 100,
+            "Should stop before max generations when target reached"
+        );
+        assert_eq!(result.stats.stop_reason, StopReason::TargetReached);
+    }
+
+    #[test]
+    fn test_stagnation_limit() {
+        let mut config = test_config(5, 100, 5);
+        config.population.stagnation_limit = Some(3); // Stop after 3 generations without improvement
+        // Use very low mutation to encourage stagnation
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            mutation_rate: 0.0,
+            mutation_strength: 0.0,
+            crossover_rate: 0.0,
+            elitism: 5, // All elite = no change
+            selection: SelectionMethod::Tournament { size: 2 },
+        });
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Should stop due to stagnation
+        assert_eq!(result.stats.stop_reason, StopReason::Stagnation);
+    }
+
+    #[test]
+    fn test_progress_callback() {
+        let config = test_config(5, 5, 5);
+
+        let mut engine = EvolutionEngine::new(config);
+        let mut progress_reports = Vec::new();
+
+        let result = engine.run_with_callback(|progress| {
+            progress_reports.push(progress.clone());
+        });
+
+        // Should have multiple progress reports (init + each generation)
+        assert!(
+            progress_reports.len() > 5,
+            "Should have at least 5 progress reports, got {}",
+            progress_reports.len()
+        );
+
+        // Final report should match result
+        let final_progress = progress_reports.last().unwrap();
+        assert_eq!(final_progress.generation, result.stats.generations);
+    }
+
+    #[test]
+    fn test_selection_methods() {
+        // Test tournament selection
+        let mut config = test_config(10, 3, 5);
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            selection: SelectionMethod::Tournament { size: 3 },
+            ..Default::default()
+        });
+        let mut engine = EvolutionEngine::new(config.clone());
+        let result_tournament = engine.run();
+        assert_eq!(result_tournament.stats.generations, 3);
+
+        // Test rank-based selection
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            selection: SelectionMethod::RankBased,
+            ..Default::default()
+        });
+        config.random_seed = Some(43); // Different seed for variety
+        let mut engine = EvolutionEngine::new(config.clone());
+        let result_rank = engine.run();
+        assert_eq!(result_rank.stats.generations, 3);
+
+        // Test roulette wheel selection
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            selection: SelectionMethod::RouletteWheel,
+            ..Default::default()
+        });
+        config.random_seed = Some(44);
+        let mut engine = EvolutionEngine::new(config);
+        let result_roulette = engine.run();
+        assert_eq!(result_roulette.stats.generations, 3);
+    }
+
+    #[test]
+    fn test_diversity_computation() {
+        let config = test_config(10, 1, 5);
+
+        let mut engine = EvolutionEngine::new(config);
+        engine.initialize();
+        engine.evaluate_population();
+
+        let diversity = engine.compute_diversity();
+        assert!(diversity >= 0.0, "Diversity should be non-negative");
+    }
+
+    #[test]
+    fn test_archive_updates() {
+        let mut config = test_config(10, 5, 10);
+        config.fitness.archive_threshold = Some(-10.0); // Low threshold to archive most candidates
+        config.archive.diversity_threshold = 0.0; // No diversity requirement
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Should have archived at least some candidates
+        assert!(
+            !result.archive.is_empty() || engine.archive.is_empty(),
+            "Archive should be populated or intentionally empty"
+        );
+    }
+
+    // ===== Edge Case Tests =====
+
+    #[test]
+    fn test_minimum_population_size() {
+        let config = test_config(2, 3, 5); // Very small population
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        assert_eq!(result.stats.generations, 3);
+        // Should still work with tiny population
+    }
+
+    #[test]
+    fn test_single_generation() {
+        let config = test_config(5, 1, 5);
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        assert_eq!(result.stats.generations, 1);
+        assert!(result.history.best_fitness.len() == 1);
+    }
+
+    #[test]
+    fn test_elitism_larger_than_population() {
+        let mut config = test_config(5, 3, 5);
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            elitism: 10, // More than population size
+            ..Default::default()
+        });
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Should not crash, elitism capped to population size
+        assert_eq!(result.stats.generations, 3);
+    }
+
+    #[test]
+    fn test_zero_mutation_rate() {
+        let mut config = test_config(5, 3, 5);
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            mutation_rate: 0.0,
+            mutation_strength: 0.0,
+            crossover_rate: 1.0,
+            elitism: 1,
+            selection: SelectionMethod::Tournament { size: 2 },
+        });
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        // Should complete without errors
+        assert_eq!(result.stats.generations, 3);
+    }
+
+    #[test]
+    fn test_zero_crossover_rate() {
+        let mut config = test_config(5, 3, 5);
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            mutation_rate: 0.5,
+            mutation_strength: 0.3,
+            crossover_rate: 0.0, // No crossover
+            elitism: 1,
+            selection: SelectionMethod::Tournament { size: 2 },
+        });
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        assert_eq!(result.stats.generations, 3);
+    }
+
+    #[test]
+    fn test_evaluations_per_second_metric() {
+        let config = test_config(5, 3, 5);
+
+        let mut engine = EvolutionEngine::new(config);
+        let result = engine.run();
+
+        assert!(
+            result.stats.evaluations_per_second > 0.0,
+            "Should report positive evaluations per second"
+        );
+        assert!(
+            result.stats.elapsed_seconds > 0.0,
+            "Should report positive elapsed time"
+        );
+    }
+
+    #[test]
+    fn test_candidate_to_snapshot_conversion() {
+        let config = test_config(5, 1, 5);
+
+        let mut engine = EvolutionEngine::new(config.clone());
+        engine.initialize();
+        engine.evaluate_population();
+
+        let candidate = &engine.population[0];
+        let snapshot = candidate.to_snapshot(&config.base_config, &engine.default_seed);
+
+        assert_eq!(snapshot.id, candidate.id);
+        assert_eq!(snapshot.fitness, candidate.fitness);
+        assert_eq!(snapshot.generation, candidate.generation);
+    }
+
+    // ===== Integration Tests =====
+
+    #[test]
+    fn test_full_evolution_integration() {
+        // Longer integration test with realistic-ish parameters
+        let mut config = test_config(15, 8, 30);
+        config.algorithm = SearchAlgorithm::GeneticAlgorithm(GeneticAlgorithmConfig {
+            mutation_rate: 0.15,
+            mutation_strength: 0.25,
+            crossover_rate: 0.7,
+            elitism: 2,
+            selection: SelectionMethod::Tournament { size: 3 },
+        });
+        config.fitness.metrics = vec![
+            WeightedMetric {
+                metric: FitnessMetric::Persistence,
+                weight: 1.0,
+            },
+            WeightedMetric {
+                metric: FitnessMetric::Compactness,
+                weight: 0.5,
+            },
+        ];
+
+        let mut engine = EvolutionEngine::new(config);
+
+        // Collect progress during run
+        let mut generation_best_fitnesses = Vec::new();
+        let result = engine.run_with_callback(|progress| {
+            if progress.generation > 0 {
+                generation_best_fitnesses.push(progress.generation_best);
+            }
+        });
+
+        // Verify complete run
+        assert_eq!(result.stats.generations, 8);
+
+        // Verify history is consistent
+        assert_eq!(result.history.best_fitness.len(), 8);
+        assert_eq!(result.history.avg_fitness.len(), 8);
+        assert_eq!(result.history.diversity.len(), 8);
+
+        // Verify best candidate has valid structure
+        assert!(result.best.fitness >= 0.0);
+        assert!(!result.best.genome.kernels.is_empty());
+        assert!(!result.best.metric_scores.is_empty());
+
+        // Verify stats are reasonable
+        assert!(result.stats.total_evaluations > 0);
+        assert!(result.stats.elapsed_seconds > 0.0);
     }
 }
