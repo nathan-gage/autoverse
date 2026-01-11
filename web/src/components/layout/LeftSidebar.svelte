@@ -265,4 +265,24 @@
 	.log-message {
 		word-break: break-word;
 	}
+
+	@media (max-width: 900px) {
+		.left-sidebar {
+			width: 100%;
+		}
+
+		.control-grid {
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+		}
+
+		.tool-grid {
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+		}
+	}
+
+	@media (max-width: 600px) {
+		.tool-grid {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
 </style>

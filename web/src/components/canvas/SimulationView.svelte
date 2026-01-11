@@ -291,4 +291,23 @@
 		);
 		background-size: 100% 2px;
 	}
+
+	@media (max-width: 900px) {
+		.simulation-view {
+			padding: 4px 0;
+		}
+
+		.canvas-frame {
+			width: 100%;
+		}
+
+		.canvas-container {
+			width: 100%;
+		}
+
+		canvas {
+			width: min(100%, 512px);
+			height: auto;
+		}
+	}
 </style>

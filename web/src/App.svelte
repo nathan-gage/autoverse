@@ -273,6 +273,44 @@
 		z-index: 1;
 	}
 
+	@media (max-width: 1100px) {
+		.main-content {
+			gap: 6px;
+			padding: 6px;
+		}
+
+		.main-content :global(.left-sidebar) {
+			width: 200px;
+		}
+
+		.main-content :global(.right-sidebar) {
+			width: 160px;
+		}
+	}
+
+	@media (max-width: 900px) {
+		.main-content {
+			flex-direction: column;
+			overflow-y: auto;
+			padding: 6px 8px;
+		}
+
+		.main-content :global(.simulation-view) {
+			order: 1;
+		}
+
+		.main-content :global(.left-sidebar) {
+			order: 2;
+			width: 100%;
+		}
+
+		.main-content :global(.right-sidebar) {
+			order: 3;
+			width: 100%;
+			padding-top: 0;
+		}
+	}
+
 	/* Canvas-based glow layer - UI colors masked by simulation mass */
 	.glow-layer {
 		position: absolute;

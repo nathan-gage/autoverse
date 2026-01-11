@@ -130,4 +130,35 @@
 	.backend-indicator.gpu .backend-label {
 		color: var(--color-secondary-dim);
 	}
+
+	@media (max-width: 900px) {
+		.header {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 8px;
+			padding: 8px 12px;
+		}
+
+		.header-right {
+			width: 100%;
+			justify-content: space-between;
+		}
+
+		.theme-picker,
+		.backend-indicator {
+			align-items: flex-start;
+		}
+
+		.ascii-logo {
+			font-size: 9px;
+		}
+	}
+
+	@media (max-width: 600px) {
+		.header-right {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 12px;
+		}
+	}
 </style>

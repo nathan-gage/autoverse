@@ -415,4 +415,28 @@
 		text-align: center;
 		padding: 12px 4px;
 	}
+
+	@media (max-width: 900px) {
+		.right-sidebar {
+			width: 100%;
+			overflow: visible;
+		}
+
+		.metric-row {
+			flex-wrap: wrap;
+			gap: 8px;
+		}
+
+		.metric-item {
+			flex: 1 1 120px;
+		}
+
+		.builtin-grid {
+			grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+		}
+
+		.preset-item {
+			flex-wrap: wrap;
+		}
+	}
 </style>
