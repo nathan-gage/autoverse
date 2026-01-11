@@ -416,4 +416,108 @@ mod tests {
             }
         }
     }
+
+    /// Direct convolution for testing (matches GPU shader logic).
+    fn direct_convolve(
+        input: &[f32],
+        kernel: &[f32],
+        width: usize,
+        height: usize,
+        kernel_radius: usize,
+    ) -> Vec<f32> {
+        let kernel_size = 2 * kernel_radius + 1;
+        let mut output = vec![0.0f32; width * height];
+
+        for y in 0..height {
+            for x in 0..width {
+                let mut sum = 0.0f32;
+                for ky in 0..kernel_size {
+                    for kx in 0..kernel_size {
+                        // Offset from center
+                        let dx = kx as i32 - kernel_radius as i32;
+                        let dy = ky as i32 - kernel_radius as i32;
+
+                        // Source position with wrapping
+                        let sx = ((x as i32 + dx + width as i32) % width as i32) as usize;
+                        let sy = ((y as i32 + dy + height as i32) % height as i32) as usize;
+
+                        sum += input[sy * width + sx] * kernel[ky * kernel_size + kx];
+                    }
+                }
+                output[y * width + x] = sum;
+            }
+        }
+        output
+    }
+
+    #[test]
+    fn test_fft_vs_direct_convolution() {
+        use crate::compute::Kernel;
+        use crate::schema::{KernelConfig, RingConfig};
+
+        let width = 64;
+        let height = 64;
+        let kernel_radius = 7;
+
+        // Create a Lenia-style kernel
+        let kernel_config = KernelConfig {
+            radius: 1.0,
+            rings: vec![RingConfig {
+                amplitude: 1.0,
+                distance: 0.5,
+                width: 0.15,
+            }],
+            weight: 1.0,
+            mu: 0.15,
+            sigma: 0.015,
+            source_channel: 0,
+            target_channel: 0,
+        };
+
+        let kernel = Kernel::from_config(&kernel_config, kernel_radius);
+
+        // Create test input (Gaussian blob in center)
+        let mut input = vec![0.0f32; width * height];
+        let cx = width / 2;
+        let cy = height / 2;
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as f32 - cx as f32;
+                let dy = y as f32 - cy as f32;
+                let dist_sq = dx * dx + dy * dy;
+                input[y * width + x] = (-dist_sq / 50.0).exp();
+            }
+        }
+
+        // FFT convolution (padded kernel)
+        let padded_kernel = kernel.pad_to_size(width, height);
+        let mut fft_conv = FftConvolver::new(width, height);
+        let fft_result = fft_conv.convolve(&input, &padded_kernel);
+
+        // Direct convolution (raw kernel)
+        let actual_radius = (kernel_config.radius * kernel_radius as f32).round() as usize;
+        let direct_result = direct_convolve(&input, &kernel.data, width, height, actual_radius);
+
+        // Compare results
+        let mut max_diff = 0.0f32;
+        let mut sum_diff_sq = 0.0f32;
+        for i in 0..width * height {
+            let diff = (fft_result[i] - direct_result[i]).abs();
+            max_diff = max_diff.max(diff);
+            sum_diff_sq += diff * diff;
+        }
+        let rms_diff = (sum_diff_sq / (width * height) as f32).sqrt();
+
+        println!(
+            "FFT vs Direct convolution: max_diff={:.6}, rms_diff={:.6}",
+            max_diff, rms_diff
+        );
+
+        // They should match closely
+        assert!(
+            max_diff < 1e-4,
+            "FFT and direct convolution differ too much: max_diff={}",
+            max_diff
+        );
+    }
 }
