@@ -168,7 +168,7 @@ fn distribute_mass(
 
 /// Wrap coordinate to periodic boundary.
 #[inline]
-fn wrap_coord(coord: i32, size: usize) -> usize {
+pub fn wrap_coord(coord: i32, size: usize) -> usize {
     let s = size as i32;
     ((coord % s) + s) as usize % size
 }
