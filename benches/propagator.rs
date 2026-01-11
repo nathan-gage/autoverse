@@ -4,7 +4,7 @@ use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_ma
 
 use flow_lenia::{
     compute::{CpuPropagator, SimulationState},
-    schema::{FlowConfig, KernelConfig, Pattern, RingConfig, Seed, SimulationConfig},
+    schema::{EmbeddingConfig, FlowConfig, KernelConfig, Pattern, RingConfig, Seed, SimulationConfig},
 };
 
 fn bench_propagator_step(c: &mut Criterion) {
@@ -31,6 +31,7 @@ fn bench_propagator_step(c: &mut Criterion) {
                 target_channel: 0,
             }],
             flow: FlowConfig::default(),
+            embedding: EmbeddingConfig::default(),
         };
 
         let seed = Seed {
@@ -85,6 +86,7 @@ fn bench_multichannel(c: &mut Criterion) {
                 })
                 .collect(),
             flow: FlowConfig::default(),
+            embedding: EmbeddingConfig::default(),
         };
 
         let seed = Seed {
