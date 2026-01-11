@@ -10,7 +10,14 @@
       "Bash(cargo test:*)",
       "Bash(cargo fmt:*)",
       "Bash(cargo build:*)",
-      "Bash(cargo clippy:*)"
+      "Bash(cargo clippy:*)",
+      "Bash(just fmt-wgsl:*)",
+      "Bash(just check-wgsl:*)",
+      "Bash(just lint-wgsl:*)",
+      "Bash(just check-shaders:*)",
+      "Bash(just pre-push:*)",
+      "Bash(wgslfmt:*)",
+      "Bash(naga:*)"
     ]
   },
   "extraKnownMarketplaces": {

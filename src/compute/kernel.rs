@@ -91,28 +91,25 @@ impl Kernel {
         self.data[y * self.size + x]
     }
 
-    /// Pad kernel to target size for FFT (zero-padded, centered).
+    /// Pad kernel to target size for FFT (zero-padded, wrapped for circular convolution).
+    ///
+    /// For FFT circular convolution, the kernel center must be at position [0,0].
+    /// Elements at offset (dx, dy) from center go to position ((dx + N) mod N, (dy + N) mod N).
     pub fn pad_to_size(&self, target_width: usize, target_height: usize) -> Vec<f32> {
         let mut padded = vec![0.0f32; target_width * target_height];
-        let half_size = self.size / 2;
+        let center = self.size / 2;
 
         for ky in 0..self.size {
             for kx in 0..self.size {
-                // Wrap kernel around for circular convolution
-                let tx = if kx <= half_size {
-                    kx
-                } else {
-                    target_width - (self.size - kx)
-                };
-                let ty = if ky <= half_size {
-                    ky
-                } else {
-                    target_height - (self.size - ky)
-                };
+                // Offset from kernel center
+                let dx = kx as i32 - center as i32;
+                let dy = ky as i32 - center as i32;
 
-                if tx < target_width && ty < target_height {
-                    padded[ty * target_width + tx] = self.data[ky * self.size + kx];
-                }
+                // Wrap to padded array (center goes to [0,0])
+                let tx = ((dx + target_width as i32) % target_width as i32) as usize;
+                let ty = ((dy + target_height as i32) % target_height as i32) as usize;
+
+                padded[ty * target_width + tx] = self.data[ky * self.size + kx];
             }
         }
 

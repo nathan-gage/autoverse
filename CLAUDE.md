@@ -15,6 +15,17 @@ cargo clippy
 cargo test
 ```
 
+If you've modified WGSL shaders, also run:
+```bash
+just fmt-wgsl    # Format WGSL files
+just lint-wgsl   # Validate shaders with naga
+```
+
+Or use the combined command:
+```bash
+just pre-push    # Runs all Rust + WGSL checks
+```
+
 Fix any warnings or failures before committing.
 
 ## Build Commands
@@ -67,7 +78,17 @@ The compute pipeline runs per time step:
 4. **Flow** (`flow.rs`): Combines affinity gradient and mass gradient with alpha weighting
 5. **Reintegration** (`reintegration.rs`): Mass-conservative advection via square kernel distribution
 
-`CpuPropagator` in `propagator.rs` orchestrates the full pipeline.
+`CpuPropagator` in `propagator.rs` orchestrates the full CPU pipeline.
+
+### `compute/gpu/` - GPU Compute Backend
+WebGPU-based GPU acceleration using wgpu:
+- `GpuPropagator`: GPU-accelerated propagator with same API as CpuPropagator
+- `shaders/*.wgsl`: WGSL compute shaders for each pipeline stage
+  - `convolution_growth.wgsl`: Direct convolution + Gaussian growth
+  - `gradient.wgsl`: Sobel gradient computation
+  - `flow.wgsl`: Flow field calculation
+  - `advection.wgsl`: Mass-conservative advection (gather-based)
+  - `mass_sum.wgsl`: Channel summation
 
 ### Key Invariant
 **Mass conservation**: Total mass must remain constant (within floating-point tolerance). The reintegration tracking algorithm guarantees this by redistributing mass rather than adding/removing it.
