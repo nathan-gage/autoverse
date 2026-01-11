@@ -18,7 +18,7 @@ export interface UICallbacks {
 	onPause: () => void;
 	onStep: () => void;
 	onReset: (seed?: Seed) => void;
-	onSpeedChange: (stepsPerFrame: number) => void;
+	onSpeedChange: (stepsPerSecond: number) => void;
 	onModeChange: (mode: InteractionMode) => void;
 	onSettingsChange: (settings: Partial<ViewerSettings>) => void;
 	onSaveSelection: (name: string) => void;
@@ -36,7 +36,7 @@ export class UI {
 	private container: HTMLElement;
 	private callbacks: UICallbacks;
 	private isPlaying = false;
-	private stepsPerFrame = 1;
+	private stepsPerSecond = 60;
 	private hasSelection = false;
 
 	constructor(container: HTMLElement, callbacks: UICallbacks) {
@@ -68,7 +68,7 @@ export class UI {
               </button>
             </div>
             <div class="speed-control">
-              <label>Speed: <span id="speedValue">1</span> steps/frame</label>
+              <label>Speed: <span id="speedValue">60</span> steps/sec</label>
               <div class="button-group">
                 <button id="slowDownBtn" class="btn btn-sm">−</button>
                 <button id="speedUpBtn" class="btn btn-sm">+</button>
@@ -197,15 +197,15 @@ export class UI {
 		resetBtn.addEventListener("click", () => this.callbacks.onReset());
 
 		speedUpBtn.addEventListener("click", () => {
-			this.stepsPerFrame = Math.min(this.stepsPerFrame * 2, 64);
+			this.stepsPerSecond = Math.min(this.stepsPerSecond * 2, 480);
 			this.updateSpeedDisplay();
-			this.callbacks.onSpeedChange(this.stepsPerFrame);
+			this.callbacks.onSpeedChange(this.stepsPerSecond);
 		});
 
 		slowDownBtn.addEventListener("click", () => {
-			this.stepsPerFrame = Math.max(Math.floor(this.stepsPerFrame / 2), 1);
+			this.stepsPerSecond = Math.max(Math.floor(this.stepsPerSecond / 2), 15);
 			this.updateSpeedDisplay();
-			this.callbacks.onSpeedChange(this.stepsPerFrame);
+			this.callbacks.onSpeedChange(this.stepsPerSecond);
 		});
 
 		// Tool modes
@@ -446,7 +446,7 @@ export class UI {
 	}
 
 	private updateSpeedDisplay(): void {
-		this.get("speedValue").textContent = this.stepsPerFrame.toString();
+		this.get("speedValue").textContent = this.stepsPerSecond.toString();
 	}
 
 	private get<T extends HTMLElement = HTMLElement>(id: string): T {
