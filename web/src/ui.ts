@@ -3,6 +3,16 @@
 import { BUILTIN_PRESETS } from "./presets";
 import type { InteractionMode, Preset, Seed, ViewerSettings } from "./types";
 
+// Escape HTML to prevent XSS attacks from imported presets
+function escapeHtml(str: string): string {
+	return str
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#039;");
+}
+
 export interface UICallbacks {
 	onPlay: () => void;
 	onPause: () => void;
@@ -26,6 +36,7 @@ export class UI {
 	private callbacks: UICallbacks;
 	private isPlaying = false;
 	private stepsPerFrame = 1;
+	private currentMode: InteractionMode = "view";
 	private hasSelection = false;
 
 	constructor(container: HTMLElement, callbacks: UICallbacks) {
@@ -378,10 +389,10 @@ export class UI {
 		library.innerHTML = presets
 			.map(
 				(preset) => `
-      <div class="preset-item" data-id="${preset.id}" draggable="true">
-        <img src="${preset.thumbnail}" alt="${preset.name}" class="preset-thumbnail">
+      <div class="preset-item" data-id="${escapeHtml(preset.id)}" draggable="true">
+        <img src="${escapeHtml(preset.thumbnail)}" alt="${escapeHtml(preset.name)}" class="preset-thumbnail">
         <div class="preset-info">
-          <span class="preset-name">${preset.name}</span>
+          <span class="preset-name">${escapeHtml(preset.name)}</span>
           <span class="preset-size">${preset.region.width}x${preset.region.height}</span>
         </div>
         <button class="btn btn-sm btn-danger delete-preset" title="Delete">×</button>

@@ -22,6 +22,7 @@ export interface InteractionCallbacks {
 export class InteractionHandler {
 	private canvas: HTMLCanvasElement;
 	private simulation: SimulationManager;
+	private renderer: Renderer;
 	private callbacks: InteractionCallbacks;
 
 	private mode: InteractionMode = "view";
