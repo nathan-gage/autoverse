@@ -97,7 +97,11 @@ jobs:
               comment.body.includes('preview is up')
             );
 
-            const body = `preview is up: ${previewUrl}`;
+            const body = `preview is up
+
+${previewUrl}
+
+_closes when pr closes_`;
 
             if (botComment) {
               await github.rest.issues.updateComment({
