@@ -16,6 +16,8 @@
 
 use crate::schema::{CellParams, EmbeddingConfig, ParameterGrid};
 
+use super::wrap_coord;
+
 /// Contribution from a source cell during advection.
 #[derive(Clone, Copy)]
 struct MassContribution {
@@ -43,6 +45,7 @@ struct MassContribution {
 ///
 /// # Returns
 /// Tuple of (new mass grid, new parameter grid)
+#[allow(clippy::too_many_arguments)]
 pub fn advect_mass_and_params(
     current_mass: &[f32],
     current_params: &ParameterGrid,
@@ -76,6 +79,7 @@ pub fn advect_mass_and_params(
 }
 
 /// Advect mass and parameters into pre-allocated buffers.
+#[allow(clippy::too_many_arguments)]
 pub fn advect_mass_and_params_into(
     current_mass: &[f32],
     current_params: &ParameterGrid,
@@ -159,6 +163,7 @@ pub fn advect_mass_and_params_into(
 ///
 /// This is faster than full mixing but less accurate for parameter blending.
 /// The dominant source (highest mass contribution) determines the output parameters.
+#[allow(clippy::too_many_arguments)]
 pub fn advect_mass_and_params_dominant(
     current_mass: &[f32],
     current_params: &ParameterGrid,
@@ -293,13 +298,6 @@ fn compute_max_flow_magnitude(flow_x: &[f32], flow_y: &[f32]) -> f32 {
         .zip(flow_y.iter())
         .map(|(fx, fy)| (fx * fx + fy * fy).sqrt())
         .fold(0.0f32, f32::max)
-}
-
-/// Wrap coordinate to periodic boundary.
-#[inline]
-fn wrap_coord(coord: i32, size: usize) -> usize {
-    let s = size as i32;
-    ((coord % s) + s) as usize % size
 }
 
 #[cfg(test)]

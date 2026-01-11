@@ -12,6 +12,7 @@
       "Bash(cargo build:*)",
       "Bash(cargo bench:*)",
       "Bash(cargo clippy:*)",
+      "Bash(cargo check:*)",
       "Bash(wasm-pack build:*)",
       "Bash(wasm-pack test:*)",
       "Bash(just fmt-wgsl:*)",

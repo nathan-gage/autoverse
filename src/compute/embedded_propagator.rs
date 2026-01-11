@@ -17,8 +17,8 @@
 use crate::schema::{CellParams, ParameterGrid, Seed, SimulationConfig};
 
 use super::{
-    Kernel, advect_mass_and_params_into, advect_mass_into, convolve_growth_accumulate_embedded,
-    sobel_gradient_into, total_mass_all_channels,
+    Kernel, advect_mass_and_params_into, advect_mass_into, compute_alpha,
+    convolve_growth_accumulate_embedded, sobel_gradient_into, total_mass_all_channels,
 };
 
 /// Simulation state with embedded parameters.
@@ -349,6 +349,7 @@ impl EmbeddedPropagator {
 }
 
 /// Compute flow field using per-cell embedded parameters.
+#[allow(clippy::too_many_arguments)]
 fn compute_flow_field_embedded_into(
     grad_u_x: &[f32],
     grad_u_y: &[f32],
@@ -359,36 +360,14 @@ fn compute_flow_field_embedded_into(
     flow_x: &mut [f32],
     flow_y: &mut [f32],
 ) {
-    let len = grad_u_x.len();
-    for i in 0..len {
+    for i in 0..grad_u_x.len() {
         let cell_params = params.get_idx(i);
-        let alpha = compute_alpha_embedded(mass_sum[i], cell_params.beta_a, cell_params.n);
+        let alpha = compute_alpha(mass_sum[i], cell_params.beta_a, cell_params.n);
         let one_minus_alpha = 1.0 - alpha;
 
         flow_x[i] = one_minus_alpha * grad_u_x[i] - alpha * grad_a_x[i];
         flow_y[i] = one_minus_alpha * grad_u_y[i] - alpha * grad_a_y[i];
     }
-}
-
-/// Compute alpha weighting with per-cell parameters.
-#[inline]
-fn compute_alpha_embedded(mass: f32, beta_a: f32, n: f32) -> f32 {
-    let ratio = mass / beta_a;
-
-    let powered = if n == 1.0 {
-        ratio
-    } else if n == 2.0 {
-        ratio * ratio
-    } else if n == 3.0 {
-        ratio * ratio * ratio
-    } else if n == 4.0 {
-        let r2 = ratio * ratio;
-        r2 * r2
-    } else {
-        ratio.powf(n)
-    };
-
-    powered.clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
