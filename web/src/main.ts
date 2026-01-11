@@ -19,7 +19,7 @@ const DEFAULT_CONFIG: SimulationConfig = {
 	width: 128,
 	height: 128,
 	channels: 1,
-	dt: 0.1,
+	dt: 0.05,
 	kernel_radius: 13,
 	kernels: [
 		{

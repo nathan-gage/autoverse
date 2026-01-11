@@ -32,7 +32,7 @@ impl Default for SimulationConfig {
             width: 256,
             height: 256,
             channels: 1,
-            dt: 0.1,
+            dt: 0.05,
             kernel_radius: 13,
             kernels: vec![KernelConfig::default()],
             flow: FlowConfig::default(),
