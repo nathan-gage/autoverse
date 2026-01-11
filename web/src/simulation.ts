@@ -53,8 +53,9 @@ export class SimulationManager {
 
 	async initialize(backend: BackendType = "cpu"): Promise<void> {
 		try {
-			// Dynamic import of WASM module from the pkg directory
-			this.wasmModule = (await import("/pkg/flow_lenia.js")) as WasmModule;
+			// Use relative path so it works regardless of deployment location
+			const wasmUrl = new URL("./pkg/flow_lenia.js", import.meta.url).href;
+			this.wasmModule = (await import(/* webpackIgnore: true */ wasmUrl)) as WasmModule;
 			await this.wasmModule.default();
 
 			// Check WebGPU availability
