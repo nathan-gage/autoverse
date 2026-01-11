@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::EmbeddingConfig;
+
 /// Top-level simulation configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationConfig {
@@ -19,6 +21,9 @@ pub struct SimulationConfig {
     pub kernels: Vec<KernelConfig>,
     /// Flow/mass conservation parameters.
     pub flow: FlowConfig,
+    /// Parameter embedding configuration (for multi-species dynamics).
+    #[serde(default)]
+    pub embedding: EmbeddingConfig,
 }
 
 impl Default for SimulationConfig {
@@ -31,6 +36,7 @@ impl Default for SimulationConfig {
             kernel_radius: 13,
             kernels: vec![KernelConfig::default()],
             flow: FlowConfig::default(),
+            embedding: EmbeddingConfig::default(),
         }
     }
 }

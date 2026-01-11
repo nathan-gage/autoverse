@@ -434,7 +434,7 @@ impl SimulationStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{FlowConfig, KernelConfig, Pattern, RingConfig};
+    use crate::schema::{EmbeddingConfig, FlowConfig, KernelConfig, Pattern, RingConfig};
 
     fn test_config() -> SimulationConfig {
         SimulationConfig {
@@ -461,6 +461,7 @@ mod tests {
                 n: 2.0,
                 distribution_size: 1.0,
             },
+            embedding: EmbeddingConfig::default(),
         }
     }
 
