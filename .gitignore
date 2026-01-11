@@ -21,3 +21,7 @@ Cargo.lock
 # WASM build artifacts
 pkg/
 wasm-pack.log
+
+# Profiling artifacts
+dhat-heap.json
+profile.json

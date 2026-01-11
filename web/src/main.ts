@@ -130,6 +130,8 @@ class FlowLeniaViewer {
 					} else {
 						this.ui.updateSelection(false);
 					}
+					// Re-render to show selection rectangle
+					this.render();
 				},
 				onSelectionComplete: (_selection) => {
 					// Selection is complete, user can now save it
@@ -145,6 +147,16 @@ class FlowLeniaViewer {
 				onErase: (x, y) => {
 					this.simulation.eraseAt(x, y, this.settings.brushSize);
 					this.render();
+				},
+				onModeChange: (mode) => {
+					// Sync UI buttons when mode changes via keyboard shortcuts
+					// Use updateModeDisplay to avoid triggering callback loop
+					this.ui.updateModeDisplay(mode);
+				},
+				onBrushSizeChange: (size) => {
+					// Sync UI slider when brush size changes via keyboard shortcuts
+					this.settings.brushSize = size;
+					this.ui.updateBrushSize(size);
 				},
 			});
 

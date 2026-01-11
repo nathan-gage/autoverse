@@ -17,6 +17,7 @@ export interface InteractionCallbacks {
 	onDraw?: (x: number, y: number) => void;
 	onErase?: (x: number, y: number) => void;
 	onModeChange?: (mode: InteractionMode) => void;
+	onBrushSizeChange?: (size: number) => void;
 }
 
 export class InteractionHandler {
@@ -253,6 +254,12 @@ export class InteractionHandler {
 	}
 
 	private handleKeyDown(e: KeyboardEvent): void {
+		// Skip shortcuts when typing in input fields
+		const target = e.target as HTMLElement;
+		if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
+			return;
+		}
+
 		// Mode shortcuts
 		if (e.key === "v" || e.key === "Escape") {
 			this.setMode("view");
@@ -267,8 +274,10 @@ export class InteractionHandler {
 		// Brush size adjustment
 		if (e.key === "[") {
 			this.setBrushSize(this.brushSize - 1);
+			this.callbacks.onBrushSizeChange?.(this.brushSize);
 		} else if (e.key === "]") {
 			this.setBrushSize(this.brushSize + 1);
+			this.callbacks.onBrushSizeChange?.(this.brushSize);
 		}
 	}
 
@@ -280,9 +289,11 @@ export class InteractionHandler {
 		const simWidth = this.simulation.getWidth();
 		const simHeight = this.simulation.getHeight();
 
+		// Use rect.width/height (CSS display size) not canvas.width/height (internal size)
+		// to correctly handle CSS-scaled canvases
 		return {
-			x: Math.floor((canvasX / this.canvas.width) * simWidth),
-			y: Math.floor((canvasY / this.canvas.height) * simHeight),
+			x: Math.floor((canvasX / rect.width) * simWidth),
+			y: Math.floor((canvasY / rect.height) * simHeight),
 		};
 	}
 
