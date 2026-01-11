@@ -8,6 +8,8 @@ mod kernel;
 mod propagator;
 mod reintegration;
 
+pub mod gpu;
+
 pub use fft::*;
 pub use flow::*;
 pub use gradient::*;
