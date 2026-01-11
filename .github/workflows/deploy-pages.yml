@@ -75,6 +75,8 @@ jobs:
       - name: Build web viewer
         working-directory: web
         run: bun run build
+        env:
+          BASE_PATH: /autoverse/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
