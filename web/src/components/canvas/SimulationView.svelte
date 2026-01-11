@@ -3,6 +3,7 @@
 	import { simulationStore, getManager } from "../../stores/simulation";
 	import { settings } from "../../stores/settings";
 	import { interactionHandler, renderTrigger, simulationCanvas } from "../../stores/interaction";
+	import { currentScheme } from "../../stores/themes";
 	import { Renderer } from "../../renderer";
 	import { InteractionHandler } from "../../interaction";
 
@@ -95,6 +96,16 @@
 	// Update renderer settings
 	$: if (renderer && $settings.colorScheme) {
 		renderer.updateSettings({ colorScheme: $settings.colorScheme });
+		render();
+	}
+
+	// Update theme colors when theme changes
+	$: if (renderer && $currentScheme) {
+		renderer.setThemeColors({
+			primary: $currentScheme.colors.primary,
+			secondary: $currentScheme.colors.secondary,
+			tertiary: $currentScheme.colors.tertiary,
+		});
 		render();
 	}
 

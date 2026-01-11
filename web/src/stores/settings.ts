@@ -28,7 +28,7 @@ const initialSettings: SettingsState = {
 	mode: "view",
 	brushSize: 5,
 	brushIntensity: 0.8,
-	colorScheme: "viridis",
+	colorScheme: "theme",
 	visualizationMode: "mass",
 	showGrid: false,
 	showScanlines: true,

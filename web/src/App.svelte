@@ -74,8 +74,8 @@
 		const data = imageData.data;
 
 		// Convert brightness to alpha, subtracting colormap floor
-		// Viridis at mass=0 is ~rgb(68,1,84) = brightness 51
-		const floorBrightness = 51;
+		// Theme colormap starts at near-black rgb(5,5,5) = brightness 5
+		const floorBrightness = 5;
 		const brightnessRange = 255 - floorBrightness;
 
 		for (let i = 0; i < data.length; i += 4) {
