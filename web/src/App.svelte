@@ -4,8 +4,15 @@
 		simulationStore,
 		initializeSimulation,
 		log,
+		play,
+		pause,
+		step,
+		reset,
+		formattedStep,
+		formattedTime,
+		formattedMass,
 	} from "./stores/simulation";
-	import { settings } from "./stores/settings";
+	import { settings, togglePanels } from "./stores/settings";
 	import { loadSavedScheme, currentScheme } from "./stores/themes";
 	import { simulationCanvas } from "./stores/interaction";
 	import Header from "./components/layout/Header.svelte";
@@ -190,6 +197,52 @@
 					<LeftSidebar />
 					<RightSidebar />
 				</div>
+			{:else}
+				<div class="compact-deck">
+					<div class="compact-card">
+						<div class="compact-header">
+							<span>CONTROLS</span>
+							<button class="compact-btn secondary" onclick={togglePanels}>EXPAND</button>
+						</div>
+						<div class="compact-controls">
+							<button
+								class:active={!$simulationStore.playing}
+								onclick={() => ($simulationStore.playing ? pause() : play())}
+							>
+								{#if $simulationStore.playing}
+									STOP
+								{:else}
+									START
+								{/if}
+							</button>
+							<button onclick={() => step()}>STEP</button>
+							<button class="danger" onclick={() => reset()}>RESET</button>
+						</div>
+					</div>
+					<div class="compact-card">
+						<div class="compact-header">
+							<span>METRICS</span>
+						</div>
+						<div class="compact-metrics">
+							<div class="metric">
+								<span class="metric-label">STEPS</span>
+								<span class="metric-value">{$formattedStep}</span>
+							</div>
+							<div class="metric">
+								<span class="metric-label">TIME</span>
+								<span class="metric-value">{$formattedTime}s</span>
+							</div>
+							<div class="metric">
+								<span class="metric-label">MASS</span>
+								<span class="metric-value">{$formattedMass}</span>
+							</div>
+							<div class="metric">
+								<span class="metric-label">FPS</span>
+								<span class="metric-value">{$simulationStore.fps}</span>
+							</div>
+						</div>
+					</div>
+				</div>
 			{/if}
 		</div>
 
@@ -300,6 +353,10 @@
 		display: contents;
 	}
 
+	.compact-deck {
+		display: none;
+	}
+
 	@media (max-width: 1100px) {
 		.main-content {
 			grid-template-columns: 200px minmax(0, 1fr) 160px;
@@ -346,6 +403,83 @@
 		.panel-deck :global(.right-sidebar) {
 			border-color: var(--color-secondary-dim);
 			box-shadow: 0 0 18px color-mix(in srgb, var(--color-secondary) 30%, transparent);
+		}
+
+		.compact-deck {
+			position: absolute;
+			left: 8px;
+			right: 8px;
+			bottom: 8px;
+			display: flex;
+			gap: 12px;
+			overflow-x: auto;
+			scroll-snap-type: x mandatory;
+			padding: 8px 4px 12px;
+			z-index: 3;
+			overscroll-behavior-x: contain;
+		}
+
+		.compact-card {
+			min-width: min(300px, 85vw);
+			max-width: 85vw;
+			scroll-snap-align: start;
+			border: 1px solid var(--color-primary-dim);
+			background: color-mix(in srgb, var(--color-void) 92%, transparent);
+			backdrop-filter: blur(8px);
+			box-shadow: 0 0 16px color-mix(in srgb, var(--color-primary) 30%, transparent);
+			padding: 8px;
+			display: flex;
+			flex-direction: column;
+			gap: 8px;
+		}
+
+		.compact-header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			font-size: 8px;
+			letter-spacing: 0.1em;
+			color: var(--color-primary-dim);
+		}
+
+		.compact-controls {
+			display: grid;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			gap: 6px;
+		}
+
+		.compact-controls button {
+			font-size: 9px;
+			padding: 6px 4px;
+		}
+
+		.compact-metrics {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 8px;
+		}
+
+		.compact-metrics .metric {
+			display: flex;
+			flex-direction: column;
+			gap: 2px;
+		}
+
+		.compact-metrics .metric-label {
+			font-size: 8px;
+			color: var(--color-primary-dim);
+			letter-spacing: 0.1em;
+		}
+
+		.compact-metrics .metric-value {
+			font-family: var(--font-led);
+			font-size: 12px;
+			color: var(--color-primary);
+		}
+
+		.compact-btn {
+			font-size: 8px;
+			padding: 4px 6px;
 		}
 	}
 
