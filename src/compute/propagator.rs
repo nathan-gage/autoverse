@@ -4,9 +4,12 @@
 
 use crate::schema::{Seed, SimulationConfig};
 
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
+
 use super::{
-    CachedConvolver, FrequencyKernel, Kernel, advect_mass, compute_flow_field, growth_accumulate,
-    sobel_gradient_fast, total_mass_all_channels,
+    CachedConvolver, FrequencyKernel, Kernel, advect_mass_into, compute_flow_field,
+    growth_accumulate, sobel_gradient_fast, total_mass_all_channels,
 };
 
 /// Simulation state container.
@@ -81,6 +84,10 @@ pub struct CpuPropagator {
     convolver: CachedConvolver,
     /// Scratch buffer for affinity field.
     affinity: Vec<Vec<f32>>,
+    /// Pre-allocated buffer for next state channels (reused each step).
+    next_channels: Vec<Vec<f32>>,
+    /// Pre-allocated buffer for channel sum.
+    channel_sum_buffer: Vec<f32>,
 }
 
 impl CpuPropagator {
@@ -114,13 +121,21 @@ impl CpuPropagator {
 
         let convolver = CachedConvolver::new(width, height, freq_kernels);
 
+        let grid_size = width * height;
+
         // Allocate scratch buffers
-        let affinity = vec![vec![0.0f32; width * height]; channels];
+        let affinity = vec![vec![0.0f32; grid_size]; channels];
+
+        // Pre-allocate output buffers (reused each step)
+        let next_channels = vec![vec![0.0f32; grid_size]; channels];
+        let channel_sum_buffer = vec![0.0f32; grid_size];
 
         Self {
             config,
             convolver,
             affinity,
+            next_channels,
+            channel_sum_buffer,
         }
     }
 
@@ -137,59 +152,141 @@ impl CpuPropagator {
 
         // 1. Convolution and Growth Stage
         // For each kernel: convolve source channel, apply growth, accumulate to target
-        for (kernel_idx, kernel) in self.convolver.kernels().iter().enumerate() {
-            let source = &state.channels[kernel.source_channel];
-            let conv_result = self.convolver.convolve_with_kernel(source, kernel_idx);
 
-            // Apply growth and accumulate
-            growth_accumulate(
-                &conv_result,
-                &mut self.affinity[kernel.target_channel],
-                kernel.weight,
-                kernel.mu,
-                kernel.sigma,
-            );
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Native: Parallel convolutions, then sequential accumulation
+            let conv_results: Vec<_> = self
+                .convolver
+                .kernels()
+                .par_iter()
+                .enumerate()
+                .map(|(kernel_idx, kernel)| {
+                    let source = &state.channels[kernel.source_channel];
+                    let conv_result = self.convolver.convolve_with_kernel(source, kernel_idx);
+                    (
+                        kernel.target_channel,
+                        kernel.weight,
+                        kernel.mu,
+                        kernel.sigma,
+                        conv_result,
+                    )
+                })
+                .collect();
+
+            // Accumulate results sequentially (writes to shared buffers)
+            for (target_channel, weight, mu, sigma, conv_result) in conv_results {
+                growth_accumulate(
+                    &conv_result,
+                    &mut self.affinity[target_channel],
+                    weight,
+                    mu,
+                    sigma,
+                );
+            }
         }
 
-        // 2. Compute Total Mass Sum
-        let mass_sum = state.channel_sum();
+        #[cfg(target_arch = "wasm32")]
+        {
+            // WASM: Sequential processing
+            for (kernel_idx, kernel) in self.convolver.kernels().iter().enumerate() {
+                let source = &state.channels[kernel.source_channel];
+                let conv_result = self.convolver.convolve_with_kernel(source, kernel_idx);
+
+                growth_accumulate(
+                    &conv_result,
+                    &mut self.affinity[kernel.target_channel],
+                    kernel.weight,
+                    kernel.mu,
+                    kernel.sigma,
+                );
+            }
+        }
+
+        // 2. Compute Total Mass Sum (reusing pre-allocated buffer)
+        self.channel_sum_buffer.fill(0.0);
+        for channel in &state.channels {
+            for (sum, &val) in self.channel_sum_buffer.iter_mut().zip(channel.iter()) {
+                *sum += val;
+            }
+        }
 
         // 3. Gradient Stage
-        let (grad_a_x, grad_a_y) = sobel_gradient_fast(&mass_sum, width, height);
+        let (grad_a_x, grad_a_y) = sobel_gradient_fast(&self.channel_sum_buffer, width, height);
 
         // 4. Flow Stage - compute per-channel flow fields and advect
-        let mut new_channels = Vec::with_capacity(self.config.channels);
+        let flow_config = &self.config.flow;
+        let channel_sum = &self.channel_sum_buffer;
+        let distribution_size = flow_config.distribution_size;
 
-        for c in 0..self.config.channels {
-            // Gradient of affinity for this channel
-            let (grad_u_x, grad_u_y) = sobel_gradient_fast(&self.affinity[c], width, height);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Native: Parallel channel processing
+            // Each channel is processed independently with its own affinity and output buffer
+            self.affinity
+                .par_iter()
+                .zip(state.channels.par_iter())
+                .zip(self.next_channels.par_iter_mut())
+                .for_each(|((affinity, current), next)| {
+                    // Gradient of affinity for this channel
+                    let (grad_u_x, grad_u_y) = sobel_gradient_fast(affinity, width, height);
 
-            // Compute flow field
-            let (fx, fy) = compute_flow_field(
-                &grad_u_x,
-                &grad_u_y,
-                &grad_a_x,
-                &grad_a_y,
-                &mass_sum,
-                &self.config.flow,
-            );
+                    // Compute flow field
+                    let (fx, fy) = compute_flow_field(
+                        &grad_u_x,
+                        &grad_u_y,
+                        &grad_a_x,
+                        &grad_a_y,
+                        channel_sum,
+                        flow_config,
+                    );
 
-            // 5. Reintegration Stage - advect mass
-            let new_channel = advect_mass(
-                &state.channels[c],
-                &fx,
-                &fy,
-                width,
-                height,
-                dt,
-                self.config.flow.distribution_size,
-            );
-
-            new_channels.push(new_channel);
+                    // 5. Reintegration Stage - advect mass into pre-allocated buffer
+                    next.fill(0.0);
+                    advect_mass_into(
+                        current,
+                        &fx,
+                        &fy,
+                        next,
+                        width,
+                        height,
+                        dt,
+                        distribution_size,
+                    );
+                });
         }
 
-        // Update state
-        state.channels = new_channels;
+        #[cfg(target_arch = "wasm32")]
+        {
+            // WASM: Sequential processing
+            for c in 0..self.config.channels {
+                let (grad_u_x, grad_u_y) = sobel_gradient_fast(&self.affinity[c], width, height);
+
+                let (fx, fy) = compute_flow_field(
+                    &grad_u_x,
+                    &grad_u_y,
+                    &grad_a_x,
+                    &grad_a_y,
+                    channel_sum,
+                    flow_config,
+                );
+
+                self.next_channels[c].fill(0.0);
+                advect_mass_into(
+                    &state.channels[c],
+                    &fx,
+                    &fy,
+                    &mut self.next_channels[c],
+                    width,
+                    height,
+                    dt,
+                    distribution_size,
+                );
+            }
+        }
+
+        // Swap channels (no allocation, just pointer swap)
+        std::mem::swap(&mut state.channels, &mut self.next_channels);
         state.time += dt;
         state.step += 1;
     }

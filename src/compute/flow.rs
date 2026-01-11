@@ -9,9 +9,26 @@ use crate::schema::FlowConfig;
 /// alpha(x) = clamp((A_sum(x) / beta_A)^n, 0, 1)
 ///
 /// When mass approaches beta_A, alpha approaches 1 and diffusion dominates.
+/// Optimized for common integer values of n to avoid expensive powf().
 #[inline]
 pub fn compute_alpha(mass: f32, beta_a: f32, n: f32) -> f32 {
-    (mass / beta_a).powf(n).clamp(0.0, 1.0)
+    let ratio = mass / beta_a;
+
+    // Fast path for common integer exponents (avoids expensive powf)
+    let powered = if n == 1.0 {
+        ratio
+    } else if n == 2.0 {
+        ratio * ratio
+    } else if n == 3.0 {
+        ratio * ratio * ratio
+    } else if n == 4.0 {
+        let r2 = ratio * ratio;
+        r2 * r2
+    } else {
+        ratio.powf(n)
+    };
+
+    powered.clamp(0.0, 1.0)
 }
 
 /// Compute flow field from affinity gradient and mass gradient.
@@ -19,6 +36,7 @@ pub fn compute_alpha(mass: f32, beta_a: f32, n: f32) -> f32 {
 /// F(x) = (1 - alpha) * grad_U(x) - alpha * grad_A(x)
 ///
 /// Returns (flow_x, flow_y) vectors.
+#[inline]
 pub fn compute_flow_field(
     grad_u_x: &[f32],
     grad_u_y: &[f32],

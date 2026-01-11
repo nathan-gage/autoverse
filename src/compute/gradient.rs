@@ -54,6 +54,7 @@ pub fn gradient_magnitude(grad_x: &[f32], grad_y: &[f32]) -> Vec<f32> {
 
 /// Optimized Sobel gradient using SIMD-friendly memory access patterns.
 /// Processes rows in chunks for better cache utilization.
+#[inline]
 pub fn sobel_gradient_fast(grid: &[f32], width: usize, height: usize) -> (Vec<f32>, Vec<f32>) {
     let mut grad_x = vec![0.0f32; width * height];
     let mut grad_y = vec![0.0f32; width * height];

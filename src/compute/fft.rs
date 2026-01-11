@@ -2,8 +2,10 @@
 //!
 //! Uses rustfft for O(N log N) convolution instead of O(N * K^2) direct convolution.
 
+use std::sync::Arc;
+
 use num_complex::Complex;
-use rustfft::FftPlanner;
+use rustfft::{Fft, FftPlanner};
 
 /// FFT convolution engine with cached plans.
 pub struct FftConvolver {
@@ -145,20 +147,36 @@ impl FrequencyKernel {
     }
 }
 
-/// Optimized convolver with precomputed frequency-domain kernels.
+/// Optimized convolver with precomputed frequency-domain kernels and cached FFT plans.
 pub struct CachedConvolver {
     width: usize,
     height: usize,
     kernels: Vec<FrequencyKernel>,
+    // Cached FFT plans (expensive to create, reuse across convolutions)
+    fft_row: Arc<dyn Fft<f32>>,
+    fft_col: Arc<dyn Fft<f32>>,
+    ifft_row: Arc<dyn Fft<f32>>,
+    ifft_col: Arc<dyn Fft<f32>>,
 }
 
 impl CachedConvolver {
-    /// Create convolver with precomputed kernels.
+    /// Create convolver with precomputed kernels and cached FFT plans.
     pub fn new(width: usize, height: usize, kernels: Vec<FrequencyKernel>) -> Self {
+        // Pre-compute FFT plans once (this is the expensive part we're caching)
+        let mut planner = FftPlanner::new();
+        let fft_row = planner.plan_fft_forward(width);
+        let fft_col = planner.plan_fft_forward(height);
+        let ifft_row = planner.plan_fft_inverse(width);
+        let ifft_col = planner.plan_fft_inverse(height);
+
         Self {
             width,
             height,
             kernels,
+            fft_row,
+            fft_col,
+            ifft_row,
+            ifft_col,
         }
     }
 
@@ -168,9 +186,9 @@ impl CachedConvolver {
     }
 
     /// Convolve input with precomputed kernel at given index.
+    /// Uses cached FFT plans for efficiency.
     pub fn convolve_with_kernel(&self, input: &[f32], kernel_idx: usize) -> Vec<f32> {
-        let mut convolver = FftConvolver::new(self.width, self.height);
-        let input_freq = convolver.fft2d(input);
+        let input_freq = self.fft2d_cached(input);
 
         let kernel = &self.kernels[kernel_idx];
 
@@ -181,18 +199,76 @@ impl CachedConvolver {
             .map(|(a, b)| a * b)
             .collect();
 
-        convolver.ifft2d(&mut result_freq)
+        self.ifft2d_cached(&mut result_freq)
+    }
+
+    /// Perform 2D FFT using cached plans.
+    fn fft2d_cached(&self, input: &[f32]) -> Vec<Complex<f32>> {
+        let mut data: Vec<Complex<f32>> = input.iter().map(|&x| Complex::new(x, 0.0)).collect();
+
+        // Row-wise FFT using cached plan
+        for row in data.chunks_exact_mut(self.width) {
+            self.fft_row.process(row);
+        }
+
+        // Column-wise FFT
+        let mut col_buffer = vec![Complex::new(0.0, 0.0); self.height];
+        for x in 0..self.width {
+            // Extract column
+            for y in 0..self.height {
+                col_buffer[y] = data[y * self.width + x];
+            }
+
+            // FFT column using cached plan
+            self.fft_col.process(&mut col_buffer);
+
+            // Write back
+            for y in 0..self.height {
+                data[y * self.width + x] = col_buffer[y];
+            }
+        }
+
+        data
+    }
+
+    /// Perform inverse 2D FFT using cached plans.
+    fn ifft2d_cached(&self, input: &mut [Complex<f32>]) -> Vec<f32> {
+        // Column-wise IFFT
+        let mut col_buffer = vec![Complex::new(0.0, 0.0); self.height];
+        for x in 0..self.width {
+            // Extract column
+            for y in 0..self.height {
+                col_buffer[y] = input[y * self.width + x];
+            }
+
+            // IFFT column using cached plan
+            self.ifft_col.process(&mut col_buffer);
+
+            // Write back
+            for y in 0..self.height {
+                input[y * self.width + x] = col_buffer[y];
+            }
+        }
+
+        // Row-wise IFFT using cached plan
+        for row in input.chunks_exact_mut(self.width) {
+            self.ifft_row.process(row);
+        }
+
+        // Normalize and extract real part
+        let scale = 1.0 / (self.width * self.height) as f32;
+        input.iter().map(|c| c.re * scale).collect()
     }
 
     /// Convolve input grid with all kernels for a given source channel.
     /// Returns vector of (target_channel, weight, mu, sigma, convolution_result).
+    /// Uses cached FFT plans for efficiency.
     pub fn convolve_channel(
         &self,
         input: &[f32],
         source_channel: usize,
     ) -> Vec<(usize, f32, f32, f32, Vec<f32>)> {
-        let mut convolver = FftConvolver::new(self.width, self.height);
-        let input_freq = convolver.fft2d(input);
+        let input_freq = self.fft2d_cached(input);
 
         self.kernels
             .iter()
@@ -205,8 +281,7 @@ impl CachedConvolver {
                     .map(|(a, b)| a * b)
                     .collect();
 
-                let mut conv = FftConvolver::new(self.width, self.height);
-                let result = conv.ifft2d(&mut result_freq);
+                let result = self.ifft2d_cached(&mut result_freq);
 
                 (
                     kernel.target_channel,

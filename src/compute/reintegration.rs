@@ -28,7 +28,44 @@ pub fn advect_mass(
     distribution_size: f32,
 ) -> Vec<f32> {
     let mut next = vec![0.0f32; width * height];
+    advect_mass_into(
+        current,
+        flow_x,
+        flow_y,
+        &mut next,
+        width,
+        height,
+        dt,
+        distribution_size,
+    );
+    next
+}
 
+/// Advect mass from current state into a pre-allocated output buffer.
+///
+/// This is the allocation-free version for use with pre-allocated buffers.
+/// The `next` buffer must be zeroed before calling (or contain desired initial values).
+///
+/// # Arguments
+/// * `current` - Current state grid (flat array, row-major)
+/// * `flow_x` - X component of flow field
+/// * `flow_y` - Y component of flow field
+/// * `next` - Output buffer (must be pre-allocated and zeroed)
+/// * `width` - Grid width
+/// * `height` - Grid height
+/// * `dt` - Time step
+/// * `distribution_size` - Half-width of distribution kernel (s parameter)
+#[inline]
+pub fn advect_mass_into(
+    current: &[f32],
+    flow_x: &[f32],
+    flow_y: &[f32],
+    next: &mut [f32],
+    width: usize,
+    height: usize,
+    dt: f32,
+    distribution_size: f32,
+) {
     for y in 0..height {
         for x in 0..width {
             let idx = y * width + x;
@@ -44,19 +81,9 @@ pub fn advect_mass(
             let dest_y = y as f32 + dt * flow_y[idx];
 
             // Distribute mass to destination using square kernel
-            distribute_mass(
-                &mut next,
-                mass,
-                dest_x,
-                dest_y,
-                width,
-                height,
-                distribution_size,
-            );
+            distribute_mass(next, mass, dest_x, dest_y, width, height, distribution_size);
         }
     }
-
-    next
 }
 
 /// Distribute mass from a source point to the grid using a square distribution kernel.
