@@ -312,7 +312,7 @@ pub struct WeightedMetric {
 }
 
 /// Individual fitness metrics for evaluating patterns.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum FitnessMetric {
     /// Pattern survives many timesteps without dissipating.
@@ -370,6 +370,72 @@ pub enum FitnessMetric {
         /// Name identifier for the custom metric.
         name: String,
     },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum FitnessMetricTagged {
+    Persistence,
+    Compactness,
+    Locomotion,
+    Periodicity { period: u64, tolerance: f32 },
+    Complexity,
+    MassConcentration,
+    GliderScore { min_displacement: f32 },
+    OscillatorScore { max_period: u64, threshold: f32 },
+    Stability,
+    Custom { name: String },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum FitnessMetricRepr {
+    String(String),
+    Tagged(FitnessMetricTagged),
+}
+
+impl<'de> Deserialize<'de> for FitnessMetric {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let repr = FitnessMetricRepr::deserialize(deserializer)?;
+        match repr {
+            FitnessMetricRepr::String(value) => match value.as_str() {
+                "Persistence" => Ok(FitnessMetric::Persistence),
+                "Compactness" => Ok(FitnessMetric::Compactness),
+                "Locomotion" => Ok(FitnessMetric::Locomotion),
+                "Complexity" => Ok(FitnessMetric::Complexity),
+                "MassConcentration" => Ok(FitnessMetric::MassConcentration),
+                "Stability" => Ok(FitnessMetric::Stability),
+                other => Err(serde::de::Error::custom(format!(
+                    "Unknown fitness metric string: {other}"
+                ))),
+            },
+            FitnessMetricRepr::Tagged(tagged) => Ok(match tagged {
+                FitnessMetricTagged::Persistence => FitnessMetric::Persistence,
+                FitnessMetricTagged::Compactness => FitnessMetric::Compactness,
+                FitnessMetricTagged::Locomotion => FitnessMetric::Locomotion,
+                FitnessMetricTagged::Periodicity { period, tolerance } => {
+                    FitnessMetric::Periodicity { period, tolerance }
+                }
+                FitnessMetricTagged::Complexity => FitnessMetric::Complexity,
+                FitnessMetricTagged::MassConcentration => FitnessMetric::MassConcentration,
+                FitnessMetricTagged::GliderScore { min_displacement } => {
+                    FitnessMetric::GliderScore { min_displacement }
+                }
+                FitnessMetricTagged::OscillatorScore {
+                    max_period,
+                    threshold,
+                } => FitnessMetric::OscillatorScore {
+                    max_period,
+                    threshold,
+                },
+                FitnessMetricTagged::Stability => FitnessMetric::Stability,
+                FitnessMetricTagged::Custom { name } => FitnessMetric::Custom { name },
+            }),
+        }
+    }
 }
 
 /// Population and generation settings.
