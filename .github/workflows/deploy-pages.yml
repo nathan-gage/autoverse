@@ -5,6 +5,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # sccache for compiler artifact caching
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: true
+
 permissions:
   contents: read
   pages: write
@@ -26,34 +33,36 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-wasm-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-wasm-
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Install wasm-bindgen-cli
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "rust-cache-wasm"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install wasm-pack
         run: |
-          if ! command -v wasm-bindgen &> /dev/null; then
-            cargo install wasm-bindgen-cli
+          if ! command -v wasm-pack &> /dev/null; then
+            cargo install wasm-pack
           fi
 
       - name: Build WASM
-        run: |
-          cargo build --lib --target wasm32-unknown-unknown --release
-          wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/flow_lenia.wasm
+        run: wasm-pack build --target web --release
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
 
       - name: Install web dependencies
         working-directory: web
