@@ -152,11 +152,18 @@ def create_2d_figure(frame: np.ndarray, channel: int = 0) -> go.Figure:
 
 
 def create_3d_figure(frame: np.ndarray, channel: int = 0, threshold: float = 0.1) -> go.Figure:
-    """Create a 3D isosurface figure for the given frame and channel."""
+    """Create a 3D volume figure for the given frame and channel with opacity."""
     data = frame[channel]
+    depth, height, width = data.shape
+
+    # Downsample for performance if grid is large
+    max_size = 32
+    step = max(1, max(depth, height, width) // max_size)
+    if step > 1:
+        data = data[::step, ::step, ::step]
+        depth, height, width = data.shape
 
     # Create coordinates
-    depth, height, width = data.shape
     x, y, z = np.meshgrid(
         np.arange(width),
         np.arange(height),
@@ -164,15 +171,23 @@ def create_3d_figure(frame: np.ndarray, channel: int = 0, threshold: float = 0.1
         indexing="xy",
     )
 
-    # Create isosurface
-    fig = go.Figure(data=go.Isosurface(
+    # Create volume with opacity based on value
+    fig = go.Figure(data=go.Volume(
         x=x.flatten(),
         y=y.flatten(),
         z=z.flatten(),
         value=data.flatten(),
-        isomin=threshold,
+        isomin=0.01,
         isomax=1.0,
-        surface_count=3,
+        opacity=0.15,
+        opacityscale=[
+            [0, 0],
+            [0.05, 0],
+            [0.1, 0.3],
+            [0.3, 0.6],
+            [1.0, 1.0],
+        ],
+        surface_count=10,  # Fewer surfaces = faster
         colorscale="Viridis",
         caps=dict(x_show=False, y_show=False, z_show=False),
     ))
@@ -243,17 +258,6 @@ def main():
             ),
         ], style={"width": "200px", "margin": "20px"}),
         html.Div([
-            html.Label("Threshold (3D only):"),
-            dcc.Slider(
-                id="threshold-slider",
-                min=0.01,
-                max=0.5,
-                step=0.01,
-                value=0.1,
-                marks={0.1: "0.1", 0.25: "0.25", 0.5: "0.5"},
-            ),
-        ], style={"margin": "20px"}) if is_3d else html.Div(),
-        html.Div([
             html.Button("Play", id="play-button", n_clicks=0),
             dcc.Interval(id="interval", interval=100, disabled=True),
         ], style={"margin": "20px"}),
@@ -266,14 +270,13 @@ def main():
         Output("frame-info", "children"),
         Input("frame-slider", "value"),
         Input("channel-dropdown", "value"),
-        Input("threshold-slider", "value") if is_3d else Input("frame-slider", "value"),
     )
-    def update_figure(frame_idx, channel, threshold=0.1):
+    def update_figure(frame_idx, channel):
         frame = frames[frame_idx]
         time = frame_idx * header.dt
 
         if is_3d:
-            fig = create_3d_figure(frame, channel, threshold)
+            fig = create_3d_figure(frame, channel)
         else:
             fig = create_2d_figure(frame, channel)
 
