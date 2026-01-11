@@ -306,6 +306,9 @@ impl WasmRng {
     }
 
     fn next_usize(&mut self, max: usize) -> usize {
+        if max == 0 {
+            return 0;
+        }
         (self.next_u64() as usize) % max
     }
 
@@ -1174,6 +1177,9 @@ impl WasmEvolutionEngine {
     pub fn new(config_json: &str) -> Result<WasmEvolutionEngine, JsValue> {
         let config: EvolutionConfig = serde_json::from_str(config_json)
             .map_err(|e| JsValue::from_str(&format!("Invalid config JSON: {e}")))?;
+        config
+            .validate()
+            .map_err(|e| JsValue::from_str(&format!("Invalid config: {e:?}")))?;
         let seed = config
             .random_seed
             .unwrap_or_else(|| (js_sys::Math::random() * u64::MAX as f64) as u64);
@@ -1233,7 +1239,11 @@ impl WasmEvolutionEngine {
             .population
             .iter()
             .chain(self.archive.iter())
-            .max_by(|a, b| a.fitness.partial_cmp(&b.fitness).unwrap())
+            .max_by(|a, b| {
+                a.fitness
+                    .partial_cmp(&b.fitness)
+                    .unwrap_or(std::cmp::Ordering::Less)
+            })
             .map(|c| c.to_snapshot(&self.config.base_config, &self.default_seed))
             .ok_or_else(|| JsValue::from_str("No candidates found"))?;
         let archive: Vec<CandidateSnapshot> = self
@@ -1272,7 +1282,11 @@ impl WasmEvolutionEngine {
         let best = self
             .population
             .iter()
-            .max_by(|a, b| a.fitness.partial_cmp(&b.fitness).unwrap())
+            .max_by(|a, b| {
+                a.fitness
+                    .partial_cmp(&b.fitness)
+                    .unwrap_or(std::cmp::Ordering::Less)
+            })
             .ok_or_else(|| JsValue::from_str("No candidates"))?;
         let config = best.genome.to_config(&self.config.base_config);
         let seed = best
@@ -1349,8 +1363,11 @@ impl WasmEvolutionEngine {
             SearchAlgorithm::GeneticAlgorithm(c) => c.clone(),
             _ => GeneticAlgorithmConfig::default(),
         };
-        self.population
-            .sort_by(|a, b| b.fitness.partial_cmp(&a.fitness).unwrap());
+        self.population.sort_by(|a, b| {
+            b.fitness
+                .partial_cmp(&a.fitness)
+                .unwrap_or(std::cmp::Ordering::Less)
+        });
         let gb = self.population[0].fitness;
         if gb > self.best_fitness {
             self.best_fitness = gb;
@@ -1486,8 +1503,11 @@ impl WasmEvolutionEngine {
             }
         }
         if self.archive.len() > self.config.archive.max_size {
-            self.archive
-                .sort_by(|a, b| b.fitness.partial_cmp(&a.fitness).unwrap());
+            self.archive.sort_by(|a, b| {
+                b.fitness
+                    .partial_cmp(&a.fitness)
+                    .unwrap_or(std::cmp::Ordering::Less)
+            });
             self.archive.truncate(self.config.archive.max_size);
         }
     }
@@ -1505,11 +1525,19 @@ impl WasmEvolutionEngine {
         let bc = self
             .population
             .iter()
-            .max_by(|a, b| a.fitness.partial_cmp(&b.fitness).unwrap())
+            .max_by(|a, b| {
+                a.fitness
+                    .partial_cmp(&b.fitness)
+                    .unwrap_or(std::cmp::Ordering::Less)
+            })
             .map(|c| c.to_snapshot(&self.config.base_config, &self.default_seed));
         let tc: Vec<CandidateSnapshot> = {
             let mut s: Vec<_> = self.population.iter().collect();
-            s.sort_by(|a, b| b.fitness.partial_cmp(&a.fitness).unwrap());
+            s.sort_by(|a, b| {
+                b.fitness
+                    .partial_cmp(&a.fitness)
+                    .unwrap_or(std::cmp::Ordering::Less)
+            });
             s.into_iter()
                 .take(5)
                 .map(|c| c.to_snapshot(&self.config.base_config, &self.default_seed))
