@@ -15,7 +15,7 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: rust / test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -37,7 +37,7 @@ jobs:
         run: cargo test --profile ci --verbose
 
   clippy:
-    name: Clippy
+    name: rust / clippy
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -61,7 +61,7 @@ jobs:
         run: cargo clippy --profile ci -- -W clippy::all
 
   fmt:
-    name: Format
+    name: rust / format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -74,3 +74,31 @@ jobs:
 
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+  web-lint:
+    name: web / lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Run lint and format check
+        working-directory: web
+        run: bun run ci
