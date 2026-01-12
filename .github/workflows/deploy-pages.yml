@@ -78,11 +78,13 @@ jobs:
         env:
           BASE_PATH: /autoverse/
 
-      - name: Copy WASM to dist
+      - name: Copy WASM and standalone files to dist
         run: |
           mkdir -p web/dist/pkg
           cp pkg/flow_lenia.js web/dist/pkg/
           cp pkg/flow_lenia_bg.wasm web/dist/pkg/
+          # Copy standalone HTML files
+          cp web/viewer3d.html web/dist/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

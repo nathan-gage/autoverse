@@ -1036,14 +1036,17 @@
       const { width, height, depth } = simDimensions;
       const channels = 1;
       const frameCount = recordedFrames.length;
-      const gridSize = width * height * depth;
-      const frameSize = gridSize * channels * 4; // 4 bytes per float32
+      // Use actual frame data length from first frame
+      const actualFrameLength = recordedFrames[0].length;
+      const frameSize = actualFrameLength * 4; // 4 bytes per float32
 
       // Calculate sizes
       const headerSize = 48; // 4 + 2 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 16
       const framesSize = frameCount * frameSize;
       const indexSize = frameCount * 16;
       const totalSize = headerSize + framesSize + indexSize;
+
+      console.log(`Exporting: ${frameCount} frames, ${actualFrameLength} floats/frame, ${totalSize} bytes total`);
 
       const buffer = new ArrayBuffer(totalSize);
       const view = new DataView(buffer);
