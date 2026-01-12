@@ -111,7 +111,7 @@
       }
     }
   </script>
-  <script type="module" crossorigin src="/autoverse/preview/pr-39/assets/viewer3d-mJlYIWF7.js"></script>
+  <script type="module" crossorigin src="/autoverse/preview/pr-39/assets/viewer3d-BoeJ2og7.js"></script>
   <link rel="modulepreload" crossorigin href="/autoverse/preview/pr-39/assets/modulepreload-polyfill-B5Qt9EMX.js">
 </head>
 <body>
@@ -140,6 +140,17 @@
     <!-- Live Simulation Mode -->
     <div id="live-mode" class="mode-content">
       <h3>Live Simulation</h3>
+      <div class="input-group">
+        <label>Preset:</label>
+        <select id="presetSelect">
+          <option value="">-- Select Preset --</option>
+          <option value="sphere3d">Sphere 3D</option>
+          <option value="torus3d">Torus 3D</option>
+        </select>
+      </div>
+      <div class="input-group" style="border-top: 1px solid #333; padding-top: 10px; margin-top: 10px;">
+        <label style="color: #666; font-size: 10px;">Or load custom files:</label>
+      </div>
       <div class="input-group">
         <label>Config JSON:</label>
         <input type="file" id="configInput" accept=".json">
