@@ -7,17 +7,17 @@
 		pause,
 		step,
 		reset,
-		setStepsPerFrame,
+		setStepsPerSecond,
 		systemLog,
 	} from "../../stores/simulation";
 	import { settings, setMode, setBrushSize, setBrushIntensity } from "../../stores/settings";
 	import type { InteractionMode } from "../../types";
 
-	let speed = $state(1);
+	let speed = $state(60);
 
 	function handleSpeedChange(value: number) {
 		speed = value;
-		setStepsPerFrame(value);
+		setStepsPerSecond(value);
 	}
 
 	function handleModeChange(mode: InteractionMode) {
@@ -73,11 +73,11 @@
 			<Slider
 				label="SIM SPEED"
 				bind:value={speed}
-				min={1}
-				max={10}
-				step={1}
+				min={15}
+				max={480}
+				step={15}
 				color="primary"
-				valueFormat={(v) => `${v}X`}
+				valueFormat={(v) => `${v} steps/s`}
 				onchange={handleSpeedChange}
 			/>
 		</div>
