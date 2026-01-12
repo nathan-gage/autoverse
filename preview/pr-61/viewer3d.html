@@ -1199,9 +1199,11 @@
 
       if (currentMode === 'file' && animation) {
         updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
-      } else if (currentMode === 'live' && !batchRecording && recordedFrames.length > 0 && recordingFrame < recordedFrames.length) {
+      } else if (currentMode === 'live' && !batchRecording && playingRecording && recordedFrames.length > 0) {
+        // Only show recorded frame when actively playing back
         updatePointCloud(recordedFrames[recordingFrame], simDimensions.width, simDimensions.height, simDimensions.depth);
       } else if (currentMode === 'live' && !batchRecording && propagator) {
+        // Show live simulation state
         const data = propagator.getChannelData(0);
         updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
       }
@@ -1213,9 +1215,11 @@
 
       if (currentMode === 'file' && animation) {
         updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
-      } else if (currentMode === 'live' && !batchRecording && recordedFrames.length > 0 && recordingFrame < recordedFrames.length) {
+      } else if (currentMode === 'live' && !batchRecording && playingRecording && recordedFrames.length > 0) {
+        // Only show recorded frame when actively playing back
         updatePointCloud(recordedFrames[recordingFrame], simDimensions.width, simDimensions.height, simDimensions.depth);
       } else if (currentMode === 'live' && !batchRecording && propagator) {
+        // Show live simulation state
         const data = propagator.getChannelData(0);
         updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
       }
