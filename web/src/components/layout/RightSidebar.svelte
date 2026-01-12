@@ -1,5 +1,6 @@
 <script lang="ts">
 	import TUIBox from "../ui/TUIBox.svelte";
+	import EvolutionPanel from "../evolution/EvolutionPanel.svelte";
 	import {
 		simulationStore,
 		formattedStep,
@@ -73,6 +74,9 @@
 </script>
 
 <aside class="right-sidebar">
+	<!-- Evolution Panel -->
+	<EvolutionPanel />
+
 	<!-- Stats Panel - redesigned -->
 	<TUIBox title="METRICS" borderColor="secondary">
 		<div class="metric-display">

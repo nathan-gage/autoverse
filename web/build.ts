@@ -33,6 +33,27 @@ if (!result.success) {
 
 console.log("  Created main.js");
 
+// Bundle evolution worker separately
+console.log("Bundling evolution worker...");
+const workerResult = await Bun.build({
+	entrypoints: ["./src/evolution.worker.ts"],
+	outdir: DIST_DIR,
+	minify: true,
+	sourcemap: "external",
+	target: "browser",
+	naming: "[name].[ext]",
+});
+
+if (!workerResult.success) {
+	console.error("Worker build failed:");
+	for (const log of workerResult.logs) {
+		console.error(log);
+	}
+	process.exit(1);
+}
+
+console.log("  Created evolution.worker.js");
+
 // Copy and process HTML
 console.log("Processing HTML...");
 const htmlContent = readFileSync("./index.html", "utf-8");

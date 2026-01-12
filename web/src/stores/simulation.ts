@@ -103,6 +103,12 @@ export function setStepsPerSecond(steps: number): void {
 	stepRemainder = 0;
 }
 
+export function setStepsPerFrame(multiplier: number): void {
+	// Convert speed multiplier (1-10) to steps per second
+	// Base rate is 60 steps/second, multiplier scales it
+	setStepsPerSecond(60 * Math.max(1, Math.min(10, multiplier)));
+}
+
 export async function initializeSimulation(): Promise<void> {
 	manager = new SimulationManager(DEFAULT_CONFIG, DEFAULT_SEED);
 	await manager.initialize();
