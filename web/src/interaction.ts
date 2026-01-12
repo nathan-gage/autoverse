@@ -119,10 +119,19 @@ export class InteractionHandler {
 	}
 
 	private setupEventListeners(): void {
+		// Mouse events
 		this.canvas.addEventListener("mousedown", this.handleMouseDown.bind(this));
 		this.canvas.addEventListener("mousemove", this.handleMouseMove.bind(this));
 		this.canvas.addEventListener("mouseup", this.handleMouseUp.bind(this));
 		this.canvas.addEventListener("mouseleave", this.handleMouseLeave.bind(this));
+
+		// Touch events for mobile drawing/selection
+		this.canvas.addEventListener("touchstart", this.handleTouchStart.bind(this), {
+			passive: false,
+		});
+		this.canvas.addEventListener("touchmove", this.handleTouchMove.bind(this), { passive: false });
+		this.canvas.addEventListener("touchend", this.handleTouchEnd.bind(this), { passive: false });
+		this.canvas.addEventListener("touchcancel", this.handleTouchEnd.bind(this), { passive: false });
 
 		// Keyboard shortcuts
 		document.addEventListener("keydown", this.handleKeyDown.bind(this));
@@ -251,6 +260,113 @@ export class InteractionHandler {
 		}
 		this.isDrawing = false;
 		this.ghostPreview = null;
+	}
+
+	private handleTouchStart(e: TouchEvent): void {
+		// Only handle single touch for drawing/selection
+		if (e.touches.length !== 1) return;
+
+		// Prevent scrolling when interacting with canvas
+		if (this.mode !== "view") {
+			e.preventDefault();
+		}
+
+		const touch = e.touches[0];
+		const pos = this.getTouchSimCoords(touch);
+
+		switch (this.mode) {
+			case "select":
+				this.isSelecting = true;
+				this.selection = {
+					startX: pos.x,
+					startY: pos.y,
+					endX: pos.x,
+					endY: pos.y,
+				};
+				this.callbacks.onSelectionChange?.(this.selection);
+				break;
+
+			case "draw":
+				this.isDrawing = true;
+				this.callbacks.onDraw?.(pos.x, pos.y);
+				break;
+
+			case "erase":
+				this.isDrawing = true;
+				this.callbacks.onErase?.(pos.x, pos.y);
+				break;
+		}
+	}
+
+	private handleTouchMove(e: TouchEvent): void {
+		// Only handle single touch
+		if (e.touches.length !== 1) return;
+
+		// Prevent scrolling when drawing/selecting
+		if (this.mode !== "view" && (this.isDrawing || this.isSelecting)) {
+			e.preventDefault();
+		}
+
+		const touch = e.touches[0];
+		const pos = this.getTouchSimCoords(touch);
+
+		if (this.isSelecting && this.selection) {
+			this.selection.endX = pos.x;
+			this.selection.endY = pos.y;
+			this.callbacks.onSelectionChange?.(this.selection);
+		}
+
+		if (this.isDrawing) {
+			if (this.mode === "draw") {
+				this.callbacks.onDraw?.(pos.x, pos.y);
+			} else if (this.mode === "erase") {
+				this.callbacks.onErase?.(pos.x, pos.y);
+			}
+		}
+	}
+
+	private handleTouchEnd(e: TouchEvent): void {
+		// Prevent default to avoid mouse event emulation
+		if (this.mode !== "view" && (this.isDrawing || this.isSelecting)) {
+			e.preventDefault();
+		}
+
+		if (this.isSelecting && this.selection) {
+			// Normalize selection coordinates
+			const normalized = {
+				startX: Math.min(this.selection.startX, this.selection.endX),
+				startY: Math.min(this.selection.startY, this.selection.endY),
+				endX: Math.max(this.selection.startX, this.selection.endX),
+				endY: Math.max(this.selection.startY, this.selection.endY),
+			};
+
+			// Only complete if selection has area
+			if (normalized.endX > normalized.startX && normalized.endY > normalized.startY) {
+				this.selection = normalized;
+				this.callbacks.onSelectionComplete?.(normalized);
+			} else {
+				this.selection = null;
+			}
+
+			this.callbacks.onSelectionChange?.(this.selection);
+		}
+
+		this.isSelecting = false;
+		this.isDrawing = false;
+	}
+
+	private getTouchSimCoords(touch: Touch): { x: number; y: number } {
+		const rect = this.canvas.getBoundingClientRect();
+		const canvasX = touch.clientX - rect.left;
+		const canvasY = touch.clientY - rect.top;
+
+		const simWidth = this.simulation.getWidth();
+		const simHeight = this.simulation.getHeight();
+
+		return {
+			x: Math.floor((canvasX / rect.width) * simWidth),
+			y: Math.floor((canvasY / rect.height) * simHeight),
+		};
 	}
 
 	private handleKeyDown(e: KeyboardEvent): void {
