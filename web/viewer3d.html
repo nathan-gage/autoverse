@@ -133,7 +133,7 @@
     <div id="file-mode" class="mode-content active">
       <h3>FLWA Playback</h3>
       <div class="input-group">
-        <input type="file" id="flwaInput" accept=".flwa">
+        <input type="file" id="flwaInput" accept=".flwa,.flwa.gz,.gz">
       </div>
       <div class="btn-row">
         <button id="playBtn" disabled>Play</button>
@@ -682,7 +682,22 @@
     // File Playback Mode
     // ========================================
     async function loadFlwaFile(file) {
-      const buffer = await file.arrayBuffer();
+      let buffer = await file.arrayBuffer();
+
+      // Decompress if gzip (check for gzip magic bytes: 0x1f 0x8b)
+      const header = new Uint8Array(buffer, 0, 2);
+      if (header[0] === 0x1f && header[1] === 0x8b) {
+        if (typeof DecompressionStream !== 'undefined') {
+          const stream = new Blob([buffer]).stream();
+          const decompressedStream = stream.pipeThrough(new DecompressionStream('gzip'));
+          const decompressedBlob = await new Response(decompressedStream).blob();
+          buffer = await decompressedBlob.arrayBuffer();
+          console.log(`Decompressed to ${buffer.byteLength} bytes`);
+        } else {
+          throw new Error('Gzip decompression not supported in this browser');
+        }
+      }
+
       animation = await FLWAParser.parse(buffer);
 
       document.getElementById('frameSlider').max = animation.frameCount - 1;
@@ -1030,7 +1045,7 @@
       batchCancelled = true;
     });
 
-    function exportRecordingToFlwa() {
+    async function exportRecordingToFlwa(compress = true) {
       if (recordedFrames.length === 0 || !simDimensions) return;
 
       const { width, height, depth } = simDimensions;
@@ -1038,60 +1053,49 @@
       const frameCount = recordedFrames.length;
       const gridSize = width * height * depth;
 
-      // Calculate sizes - use grid size, not actual frame length
+      // Calculate sizes
       const headerSize = 48;
-      const bytesPerFrame = gridSize * 4; // 4 bytes per float32
+      const bytesPerFrame = gridSize * 4;
       const framesSize = frameCount * bytesPerFrame;
       const indexSize = frameCount * 16;
       const totalSize = headerSize + framesSize + indexSize;
 
-      console.log(`Exporting: ${frameCount} frames, gridSize=${gridSize}, ${totalSize} bytes total`);
+      setSimStatus(`Exporting ${frameCount} frames...`, 'loading');
 
-      // Use Float32Array view for efficient frame writing
+      // Build uncompressed buffer
       const buffer = new ArrayBuffer(totalSize);
       const view = new DataView(buffer);
       const uint8 = new Uint8Array(buffer);
 
-      // Header offset tracker
-      let headerOffset = 0;
-
       // Magic: "FLWA"
-      uint8[0] = 70; // 'F'
-      uint8[1] = 76; // 'L'
-      uint8[2] = 87; // 'W'
-      uint8[3] = 65; // 'A'
-      headerOffset = 4;
+      uint8[0] = 70; uint8[1] = 76; uint8[2] = 87; uint8[3] = 65;
 
+      let headerOffset = 4;
       view.setUint16(headerOffset, 1, true); headerOffset += 2; // Version
-      view.setUint16(headerOffset, 0, true); headerOffset += 2; // Flags
+      view.setUint16(headerOffset, 0, true); headerOffset += 2; // Flags (0 = no compression in FLWA format)
       view.setUint32(headerOffset, width, true); headerOffset += 4;
       view.setUint32(headerOffset, height, true); headerOffset += 4;
       view.setUint32(headerOffset, depth, true); headerOffset += 4;
       view.setUint32(headerOffset, channels, true); headerOffset += 4;
-      view.setUint32(headerOffset, frameCount, true); headerOffset += 4; // Frame count low
-      view.setUint32(headerOffset, 0, true); headerOffset += 4; // Frame count high
-      view.setFloat32(headerOffset, configJson?.dt || 0.1, true); headerOffset += 4; // dt
-      // Reserved 16 bytes (headerOffset now at 48)
+      view.setUint32(headerOffset, frameCount, true); headerOffset += 4;
+      view.setUint32(headerOffset, 0, true); headerOffset += 4;
+      view.setFloat32(headerOffset, configJson?.dt || 0.1, true);
 
-      // Write frame data using typed array for efficiency
+      // Write frame data
       const frameDataStart = headerSize;
       const frameOffsets = [];
 
       for (let i = 0; i < frameCount; i++) {
         const frameOffset = frameDataStart + i * bytesPerFrame;
         frameOffsets.push(frameOffset);
-
-        const frameData = recordedFrames[i];
         const floatView = new Float32Array(buffer, frameOffset, gridSize);
-
-        // Copy frame data (truncate or pad if needed)
-        const copyLen = Math.min(frameData.length, gridSize);
+        const copyLen = Math.min(recordedFrames[i].length, gridSize);
         for (let j = 0; j < copyLen; j++) {
-          floatView[j] = frameData[j];
+          floatView[j] = recordedFrames[i][j];
         }
       }
 
-      // Write frame index at the end
+      // Write frame index
       const indexStart = frameDataStart + framesSize;
       for (let i = 0; i < frameCount; i++) {
         const indexOffset = indexStart + i * 16;
@@ -1099,19 +1103,38 @@
         view.setBigUint64(indexOffset + 8, BigInt(bytesPerFrame), true);
       }
 
-      // Create download
-      const blob = new Blob([buffer], { type: 'application/octet-stream' });
+      let finalData = buffer;
+      let extension = 'flwa';
+
+      // Compress with gzip if requested and available
+      if (compress && typeof CompressionStream !== 'undefined') {
+        try {
+          const stream = new Blob([buffer]).stream();
+          const compressedStream = stream.pipeThrough(new CompressionStream('gzip'));
+          const compressedBlob = await new Response(compressedStream).blob();
+          finalData = await compressedBlob.arrayBuffer();
+          extension = 'flwa.gz';
+          const ratio = ((1 - finalData.byteLength / totalSize) * 100).toFixed(1);
+          console.log(`Compressed: ${totalSize} -> ${finalData.byteLength} bytes (${ratio}% reduction)`);
+        } catch (e) {
+          console.warn('Compression failed, exporting uncompressed:', e);
+        }
+      }
+
+      // Download
+      const blob = new Blob([finalData], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      a.download = `recording-${width}x${height}x${depth}-${frameCount}frames-${timestamp}.flwa`;
+      const sizeMB = (finalData.byteLength / 1024 / 1024).toFixed(1);
+      a.download = `recording-${width}x${height}x${depth}-${frameCount}f-${timestamp}.${extension}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      setSimStatus(`Exported ${frameCount} frames`, 'ready');
+      setSimStatus(`Exported ${frameCount} frames (${sizeMB} MB)`, 'ready');
     }
 
     document.getElementById('exportRecordBtn').addEventListener('click', () => {
@@ -1206,7 +1229,7 @@
       e.preventDefault();
       const file = e.dataTransfer.files[0];
       if (file) {
-        if (file.name.endsWith('.flwa')) {
+        if (file.name.endsWith('.flwa') || file.name.endsWith('.flwa.gz') || file.name.endsWith('.gz')) {
           // Switch to file mode
           document.querySelector('[data-mode="file"]').click();
           loadFlwaFile(file);
