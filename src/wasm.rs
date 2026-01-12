@@ -1219,6 +1219,9 @@ impl WasmEvolutionEngine {
         if !self.initial_evaluation_done {
             self.evaluate_population();
             self.initial_evaluation_done = true;
+            // Update best_fitness and history after initial evaluation
+            self.update_best_fitness_and_history();
+            self.update_archive();
             return self.get_progress();
         }
         if self.should_stop().is_some() {
@@ -1358,26 +1361,27 @@ impl WasmEvolutionEngine {
             c.behavior = b;
         }
     }
-    fn step_generation(&mut self) {
-        let ga = match &self.config.algorithm {
-            SearchAlgorithm::GeneticAlgorithm(c) => c.clone(),
-            _ => GeneticAlgorithmConfig::default(),
-        };
+    fn update_best_fitness_and_history(&mut self) {
+        // Sort population by fitness to get current best
         self.population.sort_by(|a, b| {
             b.fitness
                 .partial_cmp(&a.fitness)
                 .unwrap_or(std::cmp::Ordering::Less)
         });
-        let gb = self.population[0].fitness;
-        if gb > self.best_fitness {
-            self.best_fitness = gb;
+        let generation_best = self.population[0].fitness;
+
+        // Update best_fitness if we found a better candidate
+        if generation_best > self.best_fitness {
+            self.best_fitness = generation_best;
             self.stagnation_count = 0;
         } else {
             self.stagnation_count += 1;
         }
+
+        // Update history
         let avg =
             self.population.iter().map(|c| c.fitness).sum::<f32>() / self.population.len() as f32;
-        self.history.best_fitness.push(gb);
+        self.history.best_fitness.push(generation_best);
         self.history.avg_fitness.push(avg);
         self.history.fitness_std.push(
             (self
@@ -1389,6 +1393,14 @@ impl WasmEvolutionEngine {
                 .sqrt(),
         );
         self.history.diversity.push(self.compute_diversity());
+    }
+    fn step_generation(&mut self) {
+        let ga = match &self.config.algorithm {
+            SearchAlgorithm::GeneticAlgorithm(c) => c.clone(),
+            _ => GeneticAlgorithmConfig::default(),
+        };
+        // Update best fitness, history, and archive
+        self.update_best_fitness_and_history();
         self.update_archive();
         let mut ng = Vec::with_capacity(self.config.population.size);
         for i in 0..ga.elitism.min(self.population.len()) {
