@@ -1,10 +1,13 @@
 // Simulation Manager - WASM wrapper with enhanced state management
 
 import type { BackendType, PresetRegion, Seed, SimulationConfig, SimulationState } from "./types";
+import { resolveWasmUrls } from "./wasm";
 
 // WASM module types
 interface WasmModule {
-	default: () => Promise<void>;
+	default: (
+		moduleOrPath?: RequestInfo | URL | Response | BufferSource | WebAssembly.Module,
+	) => Promise<void>;
 	WasmPropagator: new (configJson: string, seedJson: string) => WasmPropagator;
 	WasmGpuPropagator: new (configJson: string, seedJson: string) => Promise<WasmGpuPropagator>;
 }
@@ -53,13 +56,11 @@ export class SimulationManager {
 
 	async initialize(backend: BackendType = "cpu"): Promise<void> {
 		try {
-			// Use Vite's BASE_URL to correctly resolve WASM path in all deployment contexts
-			const baseUrl = import.meta.env.BASE_URL || "/";
-			const wasmUrl = `${baseUrl}pkg/flow_lenia.js`;
+			const { wasmJsUrl, wasmBinaryUrl } = resolveWasmUrls();
 			this.wasmModule = (await import(
-				/* webpackIgnore: true */ /* @vite-ignore */ wasmUrl
+				/* webpackIgnore: true */ /* @vite-ignore */ wasmJsUrl
 			)) as WasmModule;
-			await this.wasmModule.default();
+			await this.wasmModule.default(wasmBinaryUrl);
 
 			// Check WebGPU availability
 			this.gpuAvailable = await this.checkWebGPU();

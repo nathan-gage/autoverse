@@ -6,11 +6,14 @@ import type {
 	EvolutionProgress,
 	EvolutionResult,
 } from "../types";
+import { resolveWasmUrls } from "../wasm";
 import { log, pause, reset, simulationStore } from "./simulation";
 
 // WASM module types for evolution
 interface WasmEvolutionModule {
-	default: () => Promise<void>;
+	default: (
+		moduleOrPath?: RequestInfo | URL | Response | BufferSource | WebAssembly.Module,
+	) => Promise<void>;
 	WasmEvolutionEngine: new (configJson: string) => WasmEvolutionEngine;
 }
 
@@ -63,10 +66,9 @@ function parseWasmJson<T>(value: T | string): T {
 
 export async function initializeEvolution(): Promise<void> {
 	try {
-		const baseUrl = import.meta.env.BASE_URL || "/";
-		const wasmUrl = `${baseUrl}pkg/flow_lenia.js`;
-		wasmModule = (await import(/* @vite-ignore */ wasmUrl)) as WasmEvolutionModule;
-		await wasmModule.default();
+		const { wasmJsUrl, wasmBinaryUrl } = resolveWasmUrls();
+		wasmModule = (await import(/* @vite-ignore */ wasmJsUrl)) as WasmEvolutionModule;
+		await wasmModule.default(wasmBinaryUrl);
 		evolutionStore.update((s) => ({ ...s, initialized: true }));
 		log("Evolution engine initialized", "success");
 	} catch (error) {
