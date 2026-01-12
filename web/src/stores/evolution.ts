@@ -1,4 +1,4 @@
-// Evolution state store - wraps WASM evolution engine with reactive Svelte state
+// Evolution state store - runs evolution with cooperative yielding to prevent UI lockup
 import { derived, get, writable } from "svelte/store";
 import type {
 	BestCandidateState,
@@ -52,16 +52,26 @@ export const bestCandidateState = derived(evolutionStore, ($s) => $s.bestState);
 // Module state
 let wasmModule: WasmEvolutionModule | null = null;
 let engine: WasmEvolutionEngine | null = null;
-let animationFrameId: number | null = null;
+let evolutionTimeoutId: number | null = null;
 
-function parseWasmJson<T>(value: T | string): T {
+function parseWasmJson<T>(value: T | string | null): T | null {
+	if (value === null) return null;
 	if (typeof value === "string") {
-		return JSON.parse(value) as T;
+		try {
+			return JSON.parse(value) as T;
+		} catch {
+			return null;
+		}
 	}
 	return value;
 }
 
 export async function initializeEvolution(): Promise<void> {
+	if (wasmModule) {
+		evolutionStore.update((s) => ({ ...s, initialized: true }));
+		return;
+	}
+
 	try {
 		const baseUrl = import.meta.env.BASE_URL || "/";
 		const wasmUrl = `${baseUrl}pkg/flow_lenia.js`;
@@ -79,12 +89,15 @@ export function getDefaultEvolutionConfig(): EvolutionConfig {
 	const simState = get(simulationStore);
 	return {
 		base_config: simState.config,
-		seed_pattern_type: "Blob",
-		constraints: {
-			radius: { min: 0.05, max: 0.25 },
-			amplitude: { min: 0.5, max: 2.0 },
-			x: { min: 0.3, max: 0.7 },
-			y: { min: 0.3, max: 0.7 },
+		algorithm: {
+			type: "GeneticAlgorithm",
+			config: {
+				mutation_rate: 0.15,
+				crossover_rate: 0.7,
+				mutation_strength: 0.1,
+				elitism: 2,
+				selection: { method: "Tournament", size: 3 },
+			},
 		},
 		fitness: {
 			metrics: [
@@ -94,32 +107,28 @@ export function getDefaultEvolutionConfig(): EvolutionConfig {
 			],
 			aggregation: "WeightedSum",
 		},
+		population: {
+			size: 20,
+			max_generations: 50,
+			target_fitness: 0.95,
+			stagnation_limit: 15,
+		},
 		evaluation: {
 			steps: 200,
 			sample_interval: 10,
 			warmup_steps: 20,
 		},
-		population: {
-			size: 20,
-			elitism: 2,
-		},
-		algorithm: {
-			type: "GeneticAlgorithm",
-			config: {
-				mutation_rate: 0.15,
-				crossover_rate: 0.7,
-				selection_method: "Tournament",
-				tournament_size: 3,
-			},
+		constraints: {
+			radius: { min: 0.05, max: 0.25 },
+			amplitude: { min: 0.5, max: 2.0 },
+			x: { min: 0.3, max: 0.7 },
+			y: { min: 0.3, max: 0.7 },
 		},
 		archive: {
 			enabled: true,
 			max_size: 50,
 			diversity_threshold: 0.1,
 		},
-		max_generations: 50,
-		target_fitness: 0.95,
-		stagnation_limit: 15,
 	};
 }
 
@@ -148,8 +157,13 @@ export async function startEvolution(config: EvolutionConfig): Promise<void> {
 			error: null,
 		}));
 
-		log(`Evolution started: pop=${config.population.size}, gens=${config.max_generations}`, "info");
-		runEvolutionLoop();
+		log(
+			`Evolution started: pop=${config.population.size}, gens=${config.population.max_generations}`,
+			"info",
+		);
+
+		// Start evolution loop with cooperative yielding
+		runEvolutionStep();
 	} catch (error) {
 		evolutionStore.update((s) => ({ ...s, error: String(error) }));
 		log(`Evolution error: ${error}`, "error");
@@ -157,24 +171,30 @@ export async function startEvolution(config: EvolutionConfig): Promise<void> {
 	}
 }
 
-function runEvolutionLoop(): void {
+function runEvolutionStep(): void {
 	const state = get(evolutionStore);
 	if (!state.running || !engine) {
 		return;
 	}
 
 	try {
-		const progress = parseWasmJson(engine.step());
-		const bestState = parseWasmJson(engine.getBestCandidateState());
+		// Run one evolution step
+		const progressRaw = engine.step();
+		const progress = parseWasmJson<EvolutionProgress>(progressRaw);
+
+		// Get best candidate state for preview
+		const bestStateRaw = engine.getBestCandidateState();
+		const bestState = parseWasmJson<BestCandidateState>(bestStateRaw);
 
 		evolutionStore.update((s) => ({
 			...s,
 			progress,
-			bestState,
+			bestState: bestState ?? s.bestState,
 		}));
 
 		if (engine.isComplete()) {
-			const result = parseWasmJson(engine.getResult());
+			const resultRaw = engine.getResult();
+			const result = parseWasmJson<EvolutionResult>(resultRaw);
 
 			evolutionStore.update((s) => ({
 				...s,
@@ -182,14 +202,18 @@ function runEvolutionLoop(): void {
 				result,
 			}));
 
-			log(
-				`Evolution complete: fitness=${result.best_fitness.toFixed(3)}, reason=${result.stop_reason}`,
-				"success",
-			);
+			if (result) {
+				log(
+					`Evolution complete: fitness=${result.stats.best_fitness.toFixed(3)}, reason=${result.stats.stop_reason}`,
+					"success",
+				);
+			}
 			return;
 		}
 
-		animationFrameId = requestAnimationFrame(() => runEvolutionLoop());
+		// Schedule next step with setTimeout to yield to UI
+		// Using setTimeout(0) allows the browser to process UI updates between steps
+		evolutionTimeoutId = window.setTimeout(() => runEvolutionStep(), 0);
 	} catch (error) {
 		evolutionStore.update((s) => ({
 			...s,
@@ -201,16 +225,17 @@ function runEvolutionLoop(): void {
 }
 
 export function cancelEvolution(): void {
-	if (animationFrameId !== null) {
-		cancelAnimationFrame(animationFrameId);
-		animationFrameId = null;
+	if (evolutionTimeoutId !== null) {
+		clearTimeout(evolutionTimeoutId);
+		evolutionTimeoutId = null;
 	}
 
 	const state = get(evolutionStore);
 	if (engine && state.running) {
 		engine.cancel();
 		try {
-			const result = parseWasmJson(engine.getResult());
+			const resultRaw = engine.getResult();
+			const result = parseWasmJson<EvolutionResult>(resultRaw);
 			evolutionStore.update((s) => ({ ...s, result }));
 		} catch {
 			// Ignore errors getting result after cancel
@@ -228,7 +253,14 @@ export function loadBestCandidate(): void {
 		return;
 	}
 
-	const { width, height, data } = state.bestState;
+	const { width, height, channels } = state.bestState;
+	if (!channels || channels.length === 0) {
+		log("No channel data in evolved pattern", "warn");
+		return;
+	}
+
+	// Use first channel
+	const data = channels[0];
 
 	// Convert to Custom seed pattern
 	const values: Array<[number, number, number, number]> = [];
@@ -250,4 +282,14 @@ export function loadBestCandidate(): void {
 	});
 
 	log("Loaded evolved pattern into simulation", "success");
+}
+
+// Cleanup function
+export function destroyEvolution(): void {
+	cancelEvolution();
+	if (engine) {
+		engine.free();
+		engine = null;
+	}
+	evolutionStore.set(initialState);
 }

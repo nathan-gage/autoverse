@@ -139,16 +139,12 @@ export interface ViewerSettings {
 // Evolution Types
 export interface EvolutionConfig {
 	base_config: SimulationConfig;
-	seed_pattern_type: "Blob" | "Ring" | "MultiBlob";
-	constraints: GenomeConstraints;
-	fitness: FitnessConfig;
-	evaluation: EvaluationConfig;
-	population: PopulationConfig;
 	algorithm: SearchAlgorithm;
-	archive: ArchiveConfig;
-	max_generations: number;
-	target_fitness?: number;
-	stagnation_limit?: number;
+	fitness: FitnessConfig;
+	population: PopulationConfig;
+	evaluation: EvaluationConfig;
+	constraints?: GenomeConstraints;
+	archive?: ArchiveConfig;
 	random_seed?: number;
 }
 
@@ -191,7 +187,9 @@ export interface EvaluationConfig {
 
 export interface PopulationConfig {
 	size: number;
-	elitism: number;
+	max_generations: number;
+	target_fitness?: number;
+	stagnation_limit?: number;
 }
 
 export interface SearchAlgorithm {
@@ -202,9 +200,15 @@ export interface SearchAlgorithm {
 export interface GeneticAlgorithmConfig {
 	mutation_rate: number;
 	crossover_rate: number;
-	selection_method: "Tournament" | "RankBased" | "Roulette";
-	tournament_size?: number;
+	mutation_strength?: number;
+	elitism?: number;
+	selection: SelectionMethod;
 }
+
+export type SelectionMethod =
+	| { method: "Tournament"; size?: number }
+	| { method: "RankBased" }
+	| { method: "RouletteWheel" };
 
 export interface ArchiveConfig {
 	enabled: boolean;
@@ -230,15 +234,37 @@ export interface CandidateSnapshot {
 }
 
 export interface EvolutionResult {
-	best_fitness: number;
+	best: CandidateSnapshot;
+	archive: CandidateSnapshot[];
+	stats: EvolutionStats;
+	history?: EvolutionHistory;
+}
+
+export interface EvolutionStats {
 	generations: number;
 	total_evaluations: number;
-	time_elapsed_secs: number;
+	best_fitness: number;
+	final_avg_fitness: number;
+	elapsed_seconds: number;
+	evaluations_per_second: number;
 	stop_reason: "TargetReached" | "MaxGenerations" | "Stagnation" | "Cancelled";
 }
 
+export interface EvolutionHistory {
+	generations: GenerationStats[];
+}
+
+export interface GenerationStats {
+	generation: number;
+	best_fitness: number;
+	mean_fitness: number;
+	diversity: number;
+}
+
 export interface BestCandidateState {
+	channels: number[][];
 	width: number;
 	height: number;
-	data: Float32Array;
+	time: number;
+	step: number;
 }

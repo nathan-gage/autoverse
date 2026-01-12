@@ -28,10 +28,16 @@
 		renderPreview($evolutionStore.bestState);
 	}
 
-	function renderPreview(state: { width: number; height: number; data: Float32Array }) {
+	function renderPreview(state: { channels: number[][]; width: number; height: number }) {
 		if (!previewCtx || !previewCanvas) return;
 
-		const { width, height, data } = state;
+		const { width, height, channels } = state;
+		if (!channels || channels.length === 0) return;
+
+		// Use first channel for grayscale preview
+		const data = channels[0];
+		if (!data || data.length === 0) return;
+
 		const canvasWidth = previewCanvas.width;
 		const canvasHeight = previewCanvas.height;
 
@@ -89,18 +95,18 @@
 			...base,
 			population: {
 				size: popSize,
-				elitism: Math.max(1, Math.floor(popSize / 10)),
+				max_generations: maxGens,
+				target_fitness: targetFitness,
+				stagnation_limit: Math.max(5, Math.floor(maxGens / 3)),
 			},
-			max_generations: maxGens,
-			target_fitness: targetFitness,
-			stagnation_limit: Math.max(5, Math.floor(maxGens / 3)),
 			algorithm: {
 				type: "GeneticAlgorithm",
 				config: {
 					mutation_rate: mutationRate / 100,
 					crossover_rate: 0.7,
-					selection_method: "Tournament",
-					tournament_size: 3,
+					mutation_strength: 0.1,
+					elitism: Math.max(1, Math.floor(popSize / 10)),
+					selection: { method: "Tournament", size: 3 },
 				},
 			},
 			evaluation: {
@@ -184,9 +190,9 @@
 			<div class="result-display">
 				<div class="result-row">
 					<span class="label">RESULT</span>
-					<span class="value success">{$evolutionStore.result.best_fitness.toFixed(3)}</span>
+					<span class="value success">{$evolutionStore.result.stats.best_fitness.toFixed(3)}</span>
 				</div>
-				<div class="result-reason">{getStopReasonText($evolutionStore.result.stop_reason)}</div>
+				<div class="result-reason">{getStopReasonText($evolutionStore.result.stats.stop_reason)}</div>
 			</div>
 		{:else}
 			<div class="idle-status">READY</div>
