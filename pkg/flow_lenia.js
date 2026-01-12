@@ -75,6 +75,11 @@ function debugString(val) {
     return className;
 }
 
+function getArrayF32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
 function getArrayU32FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
@@ -91,6 +96,14 @@ function getDataViewMemory0() {
         cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
     }
     return cachedDataViewMemory0;
+}
+
+let cachedFloat32ArrayMemory0 = null;
+function getFloat32ArrayMemory0() {
+    if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
+        cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
+    }
+    return cachedFloat32ArrayMemory0;
 }
 
 function getStringFromWasm0(ptr, len) {
@@ -257,9 +270,17 @@ const WasmGpuPropagatorFinalization = (typeof FinalizationRegistry === 'undefine
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmgpupropagator_free(ptr >>> 0, 1));
 
+const WasmGpuPropagator3DFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wasmgpupropagator3d_free(ptr >>> 0, 1));
+
 const WasmPropagatorFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_wasmpropagator_free(ptr >>> 0, 1));
+
+const WasmPropagator3DFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_wasmpropagator3d_free(ptr >>> 0, 1));
 
 /**
  * WebAssembly wrapper for evolutionary pattern search.
@@ -373,6 +394,8 @@ if (Symbol.dispose) WasmEvolutionEngine.prototype[Symbol.dispose] = WasmEvolutio
 
 /**
  * WebAssembly wrapper for GPU-accelerated Flow Lenia propagator.
+ *
+ * Uses RefCell for interior mutability to avoid wasm-bindgen async borrowing issues.
  */
 export class WasmGpuPropagator {
     static __wrap(ptr) {
@@ -425,8 +448,9 @@ export class WasmGpuPropagator {
     }
     /**
      * Run multiple simulation steps (async to allow GPU readback).
+     * Returns false if already processing (skip frame).
      * @param {bigint} steps
-     * @returns {Promise<void>}
+     * @returns {Promise<boolean>}
      */
     run(steps) {
         const ret = wasm.wasmgpupropagator_run(this.__wbg_ptr, steps);
@@ -434,7 +458,8 @@ export class WasmGpuPropagator {
     }
     /**
      * Perform one simulation step (async to allow GPU readback).
-     * @returns {Promise<void>}
+     * Returns false if already processing (skip frame).
+     * @returns {Promise<boolean>}
      */
     step() {
         const ret = wasm.wasmgpupropagator_step(this.__wbg_ptr);
@@ -502,6 +527,132 @@ export class WasmGpuPropagator {
 if (Symbol.dispose) WasmGpuPropagator.prototype[Symbol.dispose] = WasmGpuPropagator.prototype.free;
 
 /**
+ * WebAssembly wrapper for 3D GPU-accelerated Flow Lenia propagator.
+ *
+ * Uses RefCell for interior mutability to avoid wasm-bindgen async borrowing issues.
+ */
+export class WasmGpuPropagator3D {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(WasmGpuPropagator3D.prototype);
+        obj.__wbg_ptr = ptr;
+        WasmGpuPropagator3DFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WasmGpuPropagator3DFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wasmgpupropagator3d_free(ptr, 0);
+    }
+    /**
+     * Get grid height.
+     * @returns {number}
+     */
+    getHeight() {
+        const ret = wasm.wasmgpupropagator3d_getHeight(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get total mass across all channels.
+     * @returns {number}
+     */
+    totalMass() {
+        const ret = wasm.wasmgpupropagator3d_totalMass(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get number of channels.
+     * @returns {number}
+     */
+    getChannels() {
+        const ret = wasm.wasmgpupropagator3d_getChannels(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get flat channel data for a specific channel.
+     * Returns empty vec if state is currently borrowed.
+     * @param {number} channel
+     * @returns {Float32Array}
+     */
+    getChannelData(channel) {
+        const ret = wasm.wasmgpupropagator3d_getChannelData(this.__wbg_ptr, channel);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Create new 3D GPU propagator from JSON configuration.
+     * @param {string} config_json
+     * @param {string} seed_json
+     */
+    constructor(config_json, seed_json) {
+        const ptr0 = passStringToWasm0(config_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(seed_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmgpupropagator3d_new(ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
+     * Run multiple simulation steps.
+     * Returns false if already processing (skip frame).
+     * @param {bigint} steps
+     * @returns {Promise<boolean>}
+     */
+    run(steps) {
+        const ret = wasm.wasmgpupropagator3d_run(this.__wbg_ptr, steps);
+        return ret;
+    }
+    /**
+     * Perform one simulation step.
+     * Returns false if already processing (skip frame).
+     * @returns {Promise<boolean>}
+     */
+    step() {
+        const ret = wasm.wasmgpupropagator3d_step(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get current step count.
+     * @returns {bigint}
+     */
+    getStep() {
+        const ret = wasm.wasmgpupropagator3d_getStep(this.__wbg_ptr);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
+     * Get current simulation time.
+     * @returns {number}
+     */
+    getTime() {
+        const ret = wasm.wasmgpupropagator3d_getTime(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get grid depth.
+     * @returns {number}
+     */
+    getDepth() {
+        const ret = wasm.wasmgpupropagator3d_getDepth(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get grid width.
+     * @returns {number}
+     */
+    getWidth() {
+        const ret = wasm.wasmgpupropagator3d_getWidth(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) WasmGpuPropagator3D.prototype[Symbol.dispose] = WasmGpuPropagator3D.prototype.free;
+
+/**
  * WebAssembly wrapper for Flow Lenia propagator.
  */
 export class WasmPropagator {
@@ -528,7 +679,7 @@ export class WasmPropagator {
      * @returns {number}
      */
     totalMass() {
-        const ret = wasm.wasmpropagator_totalMass(this.__wbg_ptr);
+        const ret = wasm.wasmpropagator3d_totalMass(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -586,7 +737,7 @@ export class WasmPropagator {
      * @returns {bigint}
      */
     getStep() {
-        const ret = wasm.wasmpropagator_getStep(this.__wbg_ptr);
+        const ret = wasm.wasmpropagator3d_getStep(this.__wbg_ptr);
         return BigInt.asUintN(64, ret);
     }
     /**
@@ -594,7 +745,7 @@ export class WasmPropagator {
      * @returns {number}
      */
     getTime() {
-        const ret = wasm.wasmpropagator_getTime(this.__wbg_ptr);
+        const ret = wasm.wasmpropagator3d_getTime(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -629,6 +780,122 @@ export class WasmPropagator {
     }
 }
 if (Symbol.dispose) WasmPropagator.prototype[Symbol.dispose] = WasmPropagator.prototype.free;
+
+/**
+ * WebAssembly wrapper for 3D Flow Lenia CPU propagator.
+ */
+export class WasmPropagator3D {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WasmPropagator3DFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_wasmpropagator3d_free(ptr, 0);
+    }
+    /**
+     * Get grid height.
+     * @returns {number}
+     */
+    getHeight() {
+        const ret = wasm.wasmpropagator3d_getHeight(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get total mass across all channels.
+     * @returns {number}
+     */
+    totalMass() {
+        const ret = wasm.wasmpropagator3d_totalMass(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get number of channels.
+     * @returns {number}
+     */
+    getChannels() {
+        const ret = wasm.wasmpropagator3d_getChannels(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get flat channel data for a specific channel.
+     * Returns flattened array in z-major order: data[z * height * width + y * width + x]
+     * @param {number} channel
+     * @returns {Float32Array}
+     */
+    getChannelData(channel) {
+        const ret = wasm.wasmpropagator3d_getChannelData(this.__wbg_ptr, channel);
+        var v1 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Create new 3D propagator from JSON configuration.
+     * @param {string} config_json
+     * @param {string} seed_json
+     */
+    constructor(config_json, seed_json) {
+        const ptr0 = passStringToWasm0(config_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(seed_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmpropagator3d_new(ptr0, len0, ptr1, len1);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0] >>> 0;
+        WasmPropagator3DFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Run multiple simulation steps.
+     * @param {bigint} steps
+     */
+    run(steps) {
+        wasm.wasmpropagator3d_run(this.__wbg_ptr, steps);
+    }
+    /**
+     * Perform one simulation step.
+     */
+    step() {
+        wasm.wasmpropagator3d_step(this.__wbg_ptr);
+    }
+    /**
+     * Get current step count.
+     * @returns {bigint}
+     */
+    getStep() {
+        const ret = wasm.wasmpropagator3d_getStep(this.__wbg_ptr);
+        return BigInt.asUintN(64, ret);
+    }
+    /**
+     * Get current simulation time.
+     * @returns {number}
+     */
+    getTime() {
+        const ret = wasm.wasmpropagator3d_getTime(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get grid depth.
+     * @returns {number}
+     */
+    getDepth() {
+        const ret = wasm.wasmpropagator3d_getDepth(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Get grid width.
+     * @returns {number}
+     */
+    getWidth() {
+        const ret = wasm.wasmpropagator3d_getWidth(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) WasmPropagator3D.prototype[Symbol.dispose] = WasmPropagator3D.prototype.free;
 
 /**
  * Initialize WASM module with panic hook and logging.
@@ -1139,6 +1406,10 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_warn_165ef4f6bcfc05e7 = function(arg0, arg1, arg2, arg3) {
         console.warn(arg0, arg1, arg2, arg3);
     };
+    imports.wbg.__wbg_wasmgpupropagator3d_new = function(arg0) {
+        const ret = WasmGpuPropagator3D.__wrap(arg0);
+        return ret;
+    };
     imports.wbg.__wbg_wasmgpupropagator_new = function(arg0) {
         const ret = WasmGpuPropagator.__wrap(arg0);
         return ret;
@@ -1146,11 +1417,6 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_writeBuffer_b203cf79b98d6dd8 = function() { return handleError(function (arg0, arg1, arg2, arg3, arg4, arg5) {
         arg0.writeBuffer(arg1, arg2, arg3, arg4, arg5);
     }, arguments) };
-    imports.wbg.__wbindgen_cast_08996ed9370dfe5e = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 343, function: Function { arguments: [Externref], shim_idx: 344, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hf6a99b71828d481c, wasm_bindgen__convert__closures_____invoke__h79f9d13035c10189);
-        return ret;
-    };
     imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
         // Cast intrinsic for `Ref(String) -> Externref`.
         const ret = getStringFromWasm0(arg0, arg1);
@@ -1171,6 +1437,11 @@ function __wbg_get_imports() {
         const ret = arg0;
         return ret;
     };
+    imports.wbg.__wbindgen_cast_da20fc445ddc2238 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 363, function: Function { arguments: [Externref], shim_idx: 364, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__hf6a99b71828d481c, wasm_bindgen__convert__closures_____invoke__h79f9d13035c10189);
+        return ret;
+    };
     imports.wbg.__wbindgen_init_externref_table = function() {
         const table = wasm.__wbindgen_externrefs;
         const offset = table.grow(4);
@@ -1188,6 +1459,7 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     __wbg_init.__wbindgen_wasm_module = module;
     cachedDataViewMemory0 = null;
+    cachedFloat32ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
 
