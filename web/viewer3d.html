@@ -672,6 +672,12 @@
         document.getElementById('seedInput').value = '';
         setSimStatus(`Preset "${presetName}" loaded`, 'ready');
         checkInitReady();
+      } else if (!presetName) {
+        // Clear state when blank option is selected
+        configJson = null;
+        seedJson = null;
+        document.getElementById('simStatus').style.display = 'none';
+        checkInitReady();
       }
     });
 
