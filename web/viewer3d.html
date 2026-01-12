@@ -131,6 +131,17 @@
     <div id="live-mode" class="mode-content">
       <h3>Live Simulation</h3>
       <div class="input-group">
+        <label>Preset:</label>
+        <select id="presetSelect">
+          <option value="">-- Select Preset --</option>
+          <option value="sphere3d">Sphere 3D</option>
+          <option value="torus3d">Torus 3D</option>
+        </select>
+      </div>
+      <div class="input-group" style="border-top: 1px solid #333; padding-top: 10px; margin-top: 10px;">
+        <label style="color: #666; font-size: 10px;">Or load custom files:</label>
+      </div>
+      <div class="input-group">
         <label>Config JSON:</label>
         <input type="file" id="configInput" accept=".json">
       </div>
@@ -232,6 +243,95 @@
         return { width, height, depth, channels, frameCount, dt, frames };
       }
     }
+
+    // ========================================
+    // Preset Configurations
+    // ========================================
+    const PRESETS = {
+      sphere3d: {
+        config: {
+          "width": 64,
+          "height": 64,
+          "depth": 64,
+          "channels": 1,
+          "dt": 0.2,
+          "kernel_radius": 10,
+          "kernels": [
+            {
+              "radius": 1.0,
+              "rings": [
+                {
+                  "amplitude": 1.0,
+                  "distance": 0.5,
+                  "width": 0.15
+                }
+              ],
+              "weight": 1.0,
+              "mu": 0.15,
+              "sigma": 0.015,
+              "source_channel": 0,
+              "target_channel": 0
+            }
+          ],
+          "flow": {
+            "beta_a": 1.0,
+            "n": 2.0,
+            "distribution_size": 1.0
+          }
+        },
+        seed: {
+          "pattern": {
+            "type": "GaussianSphere",
+            "center": [0.5, 0.5, 0.5],
+            "radius": 0.15,
+            "amplitude": 1.0,
+            "channel": 0
+          }
+        }
+      },
+      torus3d: {
+        config: {
+          "width": 64,
+          "height": 64,
+          "depth": 64,
+          "channels": 1,
+          "dt": 0.15,
+          "kernel_radius": 12,
+          "kernels": [
+            {
+              "radius": 1.0,
+              "rings": [
+                {
+                  "amplitude": 1.0,
+                  "distance": 0.5,
+                  "width": 0.12
+                }
+              ],
+              "weight": 1.0,
+              "mu": 0.14,
+              "sigma": 0.014,
+              "source_channel": 0,
+              "target_channel": 0
+            }
+          ],
+          "flow": {
+            "beta_a": 1.2,
+            "n": 2.0,
+            "distribution_size": 1.0
+          }
+        },
+        seed: {
+          "pattern": {
+            "type": "Torus3D",
+            "center": [0.5, 0.5, 0.5],
+            "major_radius": 0.25,
+            "minor_radius": 0.08,
+            "amplitude": 1.0,
+            "channel": 0
+          }
+        }
+      }
+    };
 
     // ========================================
     // WASM Module Loader
@@ -561,11 +661,33 @@
       return ready;
     }
 
+    document.getElementById('presetSelect').addEventListener('change', (e) => {
+      const presetName = e.target.value;
+      if (presetName && PRESETS[presetName]) {
+        const preset = PRESETS[presetName];
+        configJson = JSON.parse(JSON.stringify(preset.config));
+        seedJson = JSON.parse(JSON.stringify(preset.seed));
+        // Clear file inputs to avoid confusion
+        document.getElementById('configInput').value = '';
+        document.getElementById('seedInput').value = '';
+        setSimStatus(`Preset "${presetName}" loaded`, 'ready');
+        checkInitReady();
+      } else if (!presetName) {
+        // Clear state when blank option is selected
+        configJson = null;
+        seedJson = null;
+        document.getElementById('simStatus').style.display = 'none';
+        checkInitReady();
+      }
+    });
+
     document.getElementById('configInput').addEventListener('change', async (e) => {
       if (e.target.files[0]) {
         try {
           const text = await e.target.files[0].text();
           configJson = JSON.parse(text);
+          // Clear preset selection when custom file is loaded
+          document.getElementById('presetSelect').value = '';
           setSimStatus('Config loaded', 'ready');
           checkInitReady();
         } catch (err) {
@@ -580,6 +702,8 @@
         try {
           const text = await e.target.files[0].text();
           seedJson = JSON.parse(text);
+          // Clear preset selection when custom file is loaded
+          document.getElementById('presetSelect').value = '';
           setSimStatus('Seed loaded', 'ready');
           checkInitReady();
         } catch (err) {
