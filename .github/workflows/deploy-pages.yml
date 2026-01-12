@@ -75,6 +75,14 @@ jobs:
       - name: Build web viewer
         working-directory: web
         run: bun run build
+        env:
+          BASE_PATH: /autoverse/
+
+      - name: Copy WASM to dist
+        run: |
+          mkdir -p web/dist/pkg
+          cp pkg/flow_lenia.js web/dist/pkg/
+          cp pkg/flow_lenia_bg.wasm web/dist/pkg/
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

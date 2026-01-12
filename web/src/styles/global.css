@@ -307,3 +307,71 @@ button:disabled {
 	0%, 100% { opacity: 1; }
 	50% { opacity: 0; }
 }
+
+/* ============================================
+   MOBILE RESPONSIVE STYLES
+   ============================================ */
+
+@media (max-width: 900px) {
+	/* Use dynamic viewport height for mobile browsers */
+	html, body {
+		height: 100dvh;
+	}
+
+	#app {
+		height: 100dvh;
+	}
+
+	/* Prevent text selection on touch interfaces */
+	.mobile-layout {
+		-webkit-user-select: none;
+		user-select: none;
+	}
+
+	/* Canvas touch handling - prevent scrolling when interacting */
+	canvas {
+		touch-action: none;
+	}
+
+	/* Larger touch targets for mobile */
+	button {
+		min-height: 36px;
+		padding: 8px 14px;
+	}
+
+	/* Adjust range sliders for touch */
+	input[type="range"] {
+		height: 6px;
+	}
+
+	input[type="range"]::-webkit-slider-thumb {
+		height: 20px;
+		width: 20px;
+	}
+
+	input[type="range"]::-moz-range-thumb {
+		height: 20px;
+		width: 20px;
+	}
+
+	/* Hide hover effects on touch devices */
+	@media (hover: none) {
+		button:hover {
+			background: transparent;
+			border-color: var(--color-primary-dim);
+			box-shadow: none;
+		}
+
+		button.secondary:hover {
+			background: transparent;
+			border-color: var(--color-secondary-dim);
+			box-shadow: none;
+		}
+
+		button.tertiary:hover {
+			background: transparent;
+			border-color: var(--color-tertiary-dim);
+			box-shadow: none;
+		}
+	}
+}

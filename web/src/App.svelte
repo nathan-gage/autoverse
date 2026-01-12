@@ -1,27 +1,20 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
-	import {
-		simulationStore,
-		initializeSimulation,
-		log,
-	} from "./stores/simulation";
+	import { simulationStore, initializeSimulation, log } from "./stores/simulation";
 	import { settings } from "./stores/settings";
 	import { loadSavedScheme, currentScheme } from "./stores/themes";
-	import { simulationCanvas } from "./stores/interaction";
+	import { mobileStore } from "./stores/mobile";
 	import Header from "./components/layout/Header.svelte";
 	import Footer from "./components/layout/Footer.svelte";
 	import LeftSidebar from "./components/layout/LeftSidebar.svelte";
 	import RightSidebar from "./components/layout/RightSidebar.svelte";
 	import SimulationView from "./components/canvas/SimulationView.svelte";
+	import BottomSheet from "./components/mobile/BottomSheet.svelte";
 
 	let initialized = false;
 	let initError: string | null = null;
-	let glowCanvas: HTMLCanvasElement;
-	let glowCtx: CanvasRenderingContext2D | null = null;
-	let animationFrame: number;
-	let glowStarted = false;
 	let appContainer: HTMLDivElement;
-
+	let glowStyle = "";
 	// Helper to convert hex to rgba
 	function hexToRgba(hex: string, alpha: number): string {
 		const r = parseInt(hex.slice(1, 3), 16);
@@ -30,103 +23,27 @@
 		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 	}
 
-	// Offscreen canvas for mask processing
-	let maskCanvas: HTMLCanvasElement | null = null;
-	let maskCtx: CanvasRenderingContext2D | null = null;
-
-	// Update glow layer - simulation brightness controls glow visibility
-	function updateGlowLayer() {
-		const srcCanvas = $simulationCanvas;
-		if (!srcCanvas || !glowCtx || !glowCanvas) {
-			animationFrame = requestAnimationFrame(updateGlowLayer);
-			return;
-		}
-
-		// Initialize mask canvas if needed
-		if (!maskCanvas) {
-			maskCanvas = document.createElement("canvas");
-			maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
-		}
-
-		// Resize canvases to match container
-		if (appContainer) {
-			const rect = appContainer.getBoundingClientRect();
-			const needsResize = glowCanvas.width !== rect.width || glowCanvas.height !== rect.height;
-			const needsInit = maskCanvas.width === 0 || maskCanvas.height === 0;
-
-			if (needsResize || needsInit) {
-				glowCanvas.width = rect.width;
-				glowCanvas.height = rect.height;
-				maskCanvas.width = rect.width;
-				maskCanvas.height = rect.height;
-			}
-		}
-
-		if (!maskCtx || maskCanvas.width === 0) return;
-
-		const w = glowCanvas.width;
-		const h = glowCanvas.height;
+	$: {
+		const { width, height } = $simulationStore.config;
+		const area = Math.max(1, width * height);
+		const averageMass = $simulationStore.totalMass / area;
+		const normalized = Math.min(1, Math.max(0, averageMass));
+		const glowAlpha = 0.15 + normalized * 0.45;
 		const colors = $currentScheme.colors;
-
-		// Step 1: Draw simulation to mask canvas (stretched) and convert to alpha mask
-		maskCtx.drawImage(srcCanvas, 0, 0, w, h);
-		const imageData = maskCtx.getImageData(0, 0, w, h);
-		const data = imageData.data;
-
-		// Convert brightness to alpha, subtracting colormap floor
-		// Theme colormap starts at near-black rgb(5,5,5) = brightness 5
-		const floorBrightness = 5;
-		const brightnessRange = 255 - floorBrightness;
-
-		for (let i = 0; i < data.length; i += 4) {
-			const rawBrightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-			const adjusted = Math.max(0, rawBrightness - floorBrightness);
-			const normalized = adjusted / brightnessRange;
-			const curved = Math.pow(normalized, 0.35); // Boost low values
-			data[i] = 255;     // R - white
-			data[i + 1] = 255; // G - white
-			data[i + 2] = 255; // B - white
-			data[i + 3] = curved * 255;
-		}
-		maskCtx.putImageData(imageData, 0, 0);
-
-		// Step 2: Draw UI glow colors to main canvas (thin edge regions)
-		glowCtx.clearRect(0, 0, w, h);
-
-		// Left sidebar - thin strip along right edge where it meets content
-		glowCtx.fillStyle = colors.primary;
-		glowCtx.fillRect(180, 0, 80, h); // Just the edge area
-
-		// Right sidebar - thin strip along left edge where it meets content
-		glowCtx.fillStyle = colors.secondary;
-		glowCtx.fillRect(w - 220, 0, 80, h);
-
-		// Header bottom edge
-		glowCtx.fillStyle = colors.tertiary;
-		glowCtx.fillRect(0, 30, w, 40);
-
-		// Footer top edge
-		glowCtx.fillStyle = colors.tertiary;
-		glowCtx.fillRect(0, h - 60, w, 40);
-
-		// Step 3: Apply mask - use destination-in with the alpha mask
-		glowCtx.globalCompositeOperation = "destination-in";
-		glowCtx.drawImage(maskCanvas, 0, 0);
-		glowCtx.globalCompositeOperation = "source-over";
-
-		animationFrame = requestAnimationFrame(updateGlowLayer);
-	}
-
-	// Start glow layer when canvas becomes available
-	$: if (glowCanvas && !glowStarted) {
-		glowCtx = glowCanvas.getContext("2d");
-		glowStarted = true;
-		updateGlowLayer();
+		glowStyle = [
+			`--color-primary-glow: ${hexToRgba(colors.primary, glowAlpha)}`,
+			`--color-secondary-glow: ${hexToRgba(colors.secondary, glowAlpha)}`,
+			`--color-tertiary-glow: ${hexToRgba(colors.tertiary, glowAlpha)}`,
+		].join("; ");
 	}
 
 	onMount(async () => {
 		// Load saved theme
 		loadSavedScheme();
+
+		// Initialize mobile detection and listen for resize
+		mobileStore.checkViewport();
+		window.addEventListener("resize", mobileStore.checkViewport);
 
 		log("SYS.BOOT", "info");
 		log("Loading WASM module...", "info");
@@ -150,9 +67,7 @@
 	});
 
 	onDestroy(() => {
-		if (animationFrame) {
-			cancelAnimationFrame(animationFrame);
-		}
+		window.removeEventListener("resize", mobileStore.checkViewport);
 	});
 </script>
 
@@ -177,19 +92,26 @@
 		</div>
 	</div>
 {:else}
-	<div class="app-container" bind:this={appContainer}>
-		<!-- Canvas-based ambient glow layer -->
-		<canvas class="glow-layer" bind:this={glowCanvas}></canvas>
-
-		<Header />
-
-		<div class="main-content">
-			<LeftSidebar />
-			<SimulationView />
-			<RightSidebar />
-		</div>
-
-		<Footer />
+	<div class="app-container" class:mobile-layout={$mobileStore.isMobile} bind:this={appContainer} style={glowStyle}>
+		{#if $mobileStore.isMobile}
+			<!-- Mobile Layout -->
+			<div class="mobile-header">
+				<span class="mobile-title">FLOW_LENIA</span>
+			</div>
+			<div class="mobile-canvas-container">
+				<SimulationView />
+			</div>
+			<BottomSheet />
+		{:else}
+			<!-- Desktop Layout -->
+			<Header />
+			<div class="main-content">
+				<LeftSidebar />
+				<SimulationView />
+				<RightSidebar />
+			</div>
+			<Footer />
+		{/if}
 	</div>
 
 	<!-- CRT Effects -->
@@ -273,17 +195,38 @@
 		z-index: 1;
 	}
 
-	/* Canvas-based glow layer - UI colors masked by simulation mass */
-	.glow-layer {
-		position: absolute;
-		top: -50px;
-		left: -50px;
-		width: calc(100% + 100px);
-		height: calc(100% + 100px);
-		pointer-events: none;
-		z-index: 0;
-		filter: blur(60px);
-		opacity: 0.7;
-		mix-blend-mode: screen;
+	/* Mobile Layout */
+	.mobile-layout {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.mobile-header {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 8px 12px;
+		border-bottom: 1px solid var(--color-primary-dim);
+		background: var(--color-void);
+		flex-shrink: 0;
+	}
+
+	.mobile-title {
+		font-size: 14px;
+		font-weight: bold;
+		color: var(--color-primary);
+		letter-spacing: 0.2em;
+		text-shadow: 0 0 10px var(--color-primary-glow);
+	}
+
+	.mobile-canvas-container {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 8px;
+		position: relative;
+		z-index: 1;
 	}
 </style>

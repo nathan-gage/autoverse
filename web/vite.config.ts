@@ -6,6 +6,11 @@ export default defineConfig({
 	plugins: [svelte()],
 	// Use BASE_PATH env var for GitHub Pages preview deployments
 	base: process.env.BASE_PATH || "/",
+	resolve: {
+		alias: {
+			"/pkg": resolve(__dirname, "../pkg"),
+		},
+	},
 	server: {
 		port: 3000,
 		fs: {
