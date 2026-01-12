@@ -1,7 +1,7 @@
 // Mobile store - state for mobile UI layout and interactions
 import { derived, get, writable } from "svelte/store";
 
-export type MobileTab = "controls" | "display" | "presets" | "patterns";
+export type MobileTab = "controls" | "display" | "presets" | "patterns" | "evolve";
 
 export interface MobileState {
 	isMobile: boolean;
@@ -11,7 +11,7 @@ export interface MobileState {
 }
 
 const MOBILE_BREAKPOINT = 900;
-const TABS: MobileTab[] = ["controls", "display", "presets", "patterns"];
+const TABS: MobileTab[] = ["controls", "display", "presets", "patterns", "evolve"];
 
 function createMobileStore() {
 	const { subscribe, set, update } = writable<MobileState>({

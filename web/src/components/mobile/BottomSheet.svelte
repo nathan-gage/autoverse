@@ -13,6 +13,15 @@
 		formattedStep,
 		formattedMass,
 	} from "../../stores/simulation";
+	import {
+		evolutionStore,
+		initializeEvolution,
+		startEvolution,
+		cancelEvolution,
+		loadBestCandidate,
+		getDefaultEvolutionConfig,
+	} from "../../stores/evolution";
+	import type { EvolutionConfig, FitnessMetricWeight } from "../../types";
 	import { settings, setMode, setBrushSize, setBrushIntensity, setColorScheme, toggleScanlines } from "../../stores/settings";
 	import { presets, deletePreset, downloadPresets, importPresets } from "../../stores/presets";
 	import { startDragFromLibrary } from "../../stores/interaction";
@@ -23,6 +32,149 @@
 	let swipeStartX = 0;
 	let swipeCurrentX = 0;
 	let speed = $state(1);
+
+	// Evolution settings
+	let evoPopSize = $state(20);
+	let evoMaxGens = $state(50);
+	let evoMutRate = $state(15);
+	let evoGoal = $state("survival");
+	let previewCanvas: HTMLCanvasElement;
+	let previewCtx: CanvasRenderingContext2D | null = null;
+
+	// Initialize evolution on mount
+	$effect(() => {
+		if (previewCanvas && !previewCtx) {
+			previewCtx = previewCanvas.getContext("2d");
+		}
+	});
+
+	// Render preview of best candidate
+	$effect(() => {
+		if (previewCtx && $evolutionStore.bestState) {
+			renderPreview($evolutionStore.bestState);
+		}
+	});
+
+	function renderPreview(state: { channels: number[][]; width: number; height: number }) {
+		if (!previewCtx || !previewCanvas) return;
+
+		const { width, height, channels } = state;
+		if (!channels || channels.length === 0) return;
+
+		const data = channels[0];
+		if (!data || data.length === 0) return;
+
+		const canvasWidth = previewCanvas.width;
+		const canvasHeight = previewCanvas.height;
+
+		const imageData = previewCtx.createImageData(width, height);
+		for (let i = 0; i < data.length; i++) {
+			const value = Math.floor(Math.min(1, Math.max(0, data[i])) * 255);
+			imageData.data[i * 4] = value;
+			imageData.data[i * 4 + 1] = value;
+			imageData.data[i * 4 + 2] = value;
+			imageData.data[i * 4 + 3] = 255;
+		}
+
+		const offscreen = new OffscreenCanvas(width, height);
+		const offCtx = offscreen.getContext("2d");
+		if (offCtx) {
+			offCtx.putImageData(imageData, 0, 0);
+			previewCtx.imageSmoothingEnabled = false;
+			previewCtx.clearRect(0, 0, canvasWidth, canvasHeight);
+			previewCtx.drawImage(offscreen, 0, 0, canvasWidth, canvasHeight);
+		}
+	}
+
+	function getFitnessMetrics(goal: string): FitnessMetricWeight[] {
+		switch (goal) {
+			case "glider":
+				return [
+					{ metric: "Persistence" as const, weight: 1.0 },
+					{ metric: "Locomotion" as const, weight: 1.5 },
+					{ metric: "Compactness" as const, weight: 0.5 },
+				];
+			case "oscillator":
+				return [
+					{ metric: "Persistence" as const, weight: 1.0 },
+					{ metric: "Stability" as const, weight: 0.8 },
+					{ metric: "Compactness" as const, weight: 0.5 },
+				];
+			case "complex":
+				return [
+					{ metric: "Persistence" as const, weight: 1.0 },
+					{ metric: "Complexity" as const, weight: 1.2 },
+					{ metric: "MassConcentration" as const, weight: 0.3 },
+				];
+			default:
+				return [
+					{ metric: "Persistence" as const, weight: 1.0 },
+					{ metric: "Compactness" as const, weight: 0.5 },
+					{ metric: "Stability" as const, weight: 0.3 },
+				];
+		}
+	}
+
+	function buildEvoConfig(): EvolutionConfig {
+		const base = getDefaultEvolutionConfig();
+		return {
+			...base,
+			population: {
+				size: evoPopSize,
+				max_generations: evoMaxGens,
+				target_fitness: 0.95,
+				stagnation_limit: Math.max(5, Math.floor(evoMaxGens / 3)),
+			},
+			algorithm: {
+				type: "GeneticAlgorithm",
+				config: {
+					mutation_rate: evoMutRate / 100,
+					crossover_rate: 0.7,
+					mutation_strength: 0.1,
+					elitism: Math.max(1, Math.floor(evoPopSize / 10)),
+					selection: { method: "Tournament", size: 3 },
+				},
+			},
+			fitness: {
+				metrics: getFitnessMetrics(evoGoal),
+				aggregation: "WeightedSum",
+			},
+		};
+	}
+
+	async function handleEvoStart() {
+		if (!$evolutionStore.initialized) {
+			try {
+				await initializeEvolution();
+			} catch {
+				return;
+			}
+		}
+		const config = buildEvoConfig();
+		try {
+			await startEvolution(config);
+		} catch (error) {
+			log(`Failed to start evolution: ${error}`, "error");
+		}
+	}
+
+	function handleEvoCancel() {
+		cancelEvolution();
+	}
+
+	function handleEvoLoad() {
+		loadBestCandidate();
+	}
+
+	function getStopReasonText(reason: string): string {
+		switch (reason) {
+			case "TargetReached": return "TARGET";
+			case "MaxGenerations": return "MAX GENS";
+			case "Stagnation": return "STAGNANT";
+			case "Cancelled": return "CANCELLED";
+			default: return reason;
+		}
+	}
 
 	// Touch handling for swipe navigation
 	function handleTouchStart(e: TouchEvent) {
@@ -333,6 +485,74 @@
 							<span class="builtin-desc">{builtin.description}</span>
 						</button>
 					{/each}
+				</div>
+			</div>
+
+			<!-- Evolve Panel -->
+			<div class="panel evolve-panel">
+				<div class="evo-header">
+					<canvas bind:this={previewCanvas} width="48" height="48" class="evo-preview"></canvas>
+					<div class="evo-status">
+						{#if $evolutionStore.running && $evolutionStore.progress}
+							<div class="evo-progress">
+								<span class="evo-label">GEN</span>
+								<span class="evo-value">{$evolutionStore.progress.generation}/{evoMaxGens}</span>
+							</div>
+							<div class="evo-progress">
+								<span class="evo-label">FIT</span>
+								<span class="evo-value highlight">{$evolutionStore.progress.best_fitness.toFixed(3)}</span>
+							</div>
+							<div class="evo-bar">
+								<div class="evo-bar-fill" style="width: {($evolutionStore.progress.generation / evoMaxGens) * 100}%"></div>
+							</div>
+						{:else if $evolutionStore.result}
+							<div class="evo-progress">
+								<span class="evo-label">RESULT</span>
+								<span class="evo-value success">{$evolutionStore.result.stats.best_fitness.toFixed(3)}</span>
+							</div>
+							<div class="evo-reason">{getStopReasonText($evolutionStore.result.stats.stop_reason)}</div>
+						{:else}
+							<span class="evo-ready">READY</span>
+						{/if}
+					</div>
+				</div>
+
+				<div class="evo-controls">
+					{#if $evolutionStore.running}
+						<button class="evo-btn danger" onclick={handleEvoCancel}>STOP</button>
+					{:else}
+						<button class="evo-btn primary" onclick={handleEvoStart}>EVOLVE</button>
+						{#if $evolutionStore.bestState}
+							<button class="evo-btn secondary" onclick={handleEvoLoad}>LOAD</button>
+						{/if}
+					{/if}
+				</div>
+
+				<div class="evo-settings">
+					<div class="evo-row">
+						<label>POP</label>
+						<input type="range" min="10" max="50" step="5" bind:value={evoPopSize} />
+						<span>{evoPopSize}</span>
+					</div>
+					<div class="evo-row">
+						<label>GENS</label>
+						<input type="range" min="20" max="100" step="10" bind:value={evoMaxGens} />
+						<span>{evoMaxGens}</span>
+					</div>
+					<div class="evo-row">
+						<label>MUT%</label>
+						<input type="range" min="5" max="30" step="5" bind:value={evoMutRate} />
+						<span>{evoMutRate}</span>
+					</div>
+					<div class="evo-row">
+						<label>GOAL</label>
+						<select bind:value={evoGoal}>
+							<option value="survival">Survival</option>
+							<option value="glider">Glider</option>
+							<option value="oscillator">Oscillator</option>
+							<option value="complex">Complex</option>
+						</select>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -798,5 +1018,171 @@
 		background: var(--color-primary);
 		border-color: var(--color-primary);
 		box-shadow: 0 0 6px var(--color-primary-glow);
+	}
+
+	/* Evolution Panel */
+	.evolve-panel {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+
+	.evo-header {
+		display: flex;
+		gap: 12px;
+		align-items: flex-start;
+	}
+
+	.evo-preview {
+		width: 48px;
+		height: 48px;
+		border: 1px solid var(--color-tertiary-dim);
+		background: var(--color-void);
+		image-rendering: pixelated;
+		flex-shrink: 0;
+	}
+
+	.evo-status {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.evo-progress {
+		display: flex;
+		justify-content: space-between;
+		font-size: 10px;
+	}
+
+	.evo-label {
+		color: var(--color-tertiary-dim);
+		letter-spacing: 0.05em;
+	}
+
+	.evo-value {
+		font-family: var(--font-led);
+		color: var(--color-tertiary);
+	}
+
+	.evo-value.highlight {
+		color: var(--color-secondary);
+		text-shadow: 0 0 6px var(--color-secondary-glow);
+	}
+
+	.evo-value.success {
+		color: var(--color-success);
+	}
+
+	.evo-bar {
+		height: 4px;
+		background: var(--color-void);
+		border: 1px solid var(--color-tertiary-dim);
+		margin-top: 4px;
+	}
+
+	.evo-bar-fill {
+		height: 100%;
+		background: var(--color-tertiary);
+		transition: width 0.2s ease;
+	}
+
+	.evo-reason {
+		font-size: 9px;
+		color: var(--color-tertiary-dim);
+		text-align: center;
+	}
+
+	.evo-ready {
+		font-size: 10px;
+		color: var(--color-tertiary-dim);
+		letter-spacing: 0.1em;
+	}
+
+	.evo-controls {
+		display: flex;
+		gap: 8px;
+	}
+
+	.evo-btn {
+		flex: 1;
+		padding: 10px;
+		font-size: 10px;
+		letter-spacing: 0.05em;
+	}
+
+	.evo-btn.primary {
+		border-color: var(--color-tertiary);
+		color: var(--color-tertiary);
+	}
+
+	.evo-btn.primary:active {
+		background: color-mix(in srgb, var(--color-tertiary) 15%, transparent);
+		box-shadow: 0 0 8px var(--color-tertiary-glow);
+	}
+
+	.evo-btn.secondary {
+		border-color: var(--color-secondary-dim);
+		color: var(--color-secondary);
+	}
+
+	.evo-btn.secondary:active {
+		border-color: var(--color-secondary);
+		box-shadow: 0 0 6px var(--color-secondary-glow);
+	}
+
+	.evo-btn.danger {
+		border-color: var(--color-danger);
+		color: var(--color-danger);
+	}
+
+	.evo-btn.danger:active {
+		background: color-mix(in srgb, var(--color-danger) 15%, transparent);
+	}
+
+	.evo-settings {
+		background: var(--color-void-light);
+		border: 1px solid var(--color-dim);
+		padding: 10px;
+	}
+
+	.evo-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-bottom: 8px;
+	}
+
+	.evo-row:last-child {
+		margin-bottom: 0;
+	}
+
+	.evo-row label {
+		font-size: 9px;
+		color: var(--color-tertiary-dim);
+		min-width: 40px;
+		letter-spacing: 0.1em;
+	}
+
+	.evo-row input[type="range"] {
+		flex: 1;
+	}
+
+	.evo-row select {
+		flex: 1;
+		font-size: 10px;
+		padding: 4px;
+		background: var(--color-void);
+		border: 1px solid var(--color-dim);
+		color: var(--color-tertiary);
+		font-family: var(--font-mono);
+	}
+
+	.evo-row span {
+		font-family: var(--font-led);
+		font-size: 11px;
+		color: var(--color-tertiary);
+		min-width: 28px;
+		text-align: right;
 	}
 </style>
