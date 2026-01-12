@@ -71,6 +71,22 @@
     .status.loading { background: #553300; color: #ffcc00; }
     .status.ready { background: #003300; color: #00ff00; }
     .status.error { background: #330000; color: #ff4444; }
+    .status.recording { background: #550000; color: #ff4444; }
+    button.recording { background: #cc0000; border-color: #ff0000; animation: pulse 1s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .recording-section {
+      border-top: 1px solid #333;
+      padding-top: 10px;
+      margin-top: 10px;
+    }
+    .recording-section h4 {
+      font-size: 12px;
+      color: #f88;
+      margin-bottom: 8px;
+    }
     .mode-tabs {
       display: flex;
       margin-bottom: 12px;
@@ -166,6 +182,26 @@
         <input type="range" id="stepsSlider" min="1" max="20" value="1">
       </div>
       <div id="simStatus" class="status" style="display:none;"></div>
+
+      <!-- Recording Controls -->
+      <div class="recording-section">
+        <h4>Recording</h4>
+        <div class="btn-row">
+          <button id="recordBtn" disabled>Record</button>
+          <button id="clearRecordBtn" disabled>Clear</button>
+        </div>
+        <label>Frames: <span id="recordedFrameCount">0</span></label>
+        <div class="btn-row" style="margin-top: 8px;">
+          <button id="playRecordBtn" disabled>Play</button>
+          <button id="resetRecordBtn" disabled>Reset</button>
+        </div>
+        <label>Frame: <span id="recordFrameNum">0</span></label>
+        <input type="range" id="recordFrameSlider" min="0" max="0" value="0" disabled>
+        <div class="input-group">
+          <label>Playback Speed: <span id="playbackSpeedVal">60</span> fps</label>
+          <input type="range" id="playbackSpeedSlider" min="10" max="120" value="60">
+        </div>
+      </div>
     </div>
 
     <!-- Common Visualization Controls -->
@@ -412,6 +448,13 @@
     let stepsPerFrame = 1;
     let simDimensions = null;
 
+    // Recording state
+    let recordedFrames = [];
+    let recording = false;
+    let playingRecording = false;
+    let recordingFrame = 0;
+    let playbackSpeed = 60; // fps
+
     // Visualization state
     let opacity = 0.5;
     let threshold = 0.05;
@@ -566,12 +609,17 @@
         infoEl.textContent = `${width}x${height}x${depth} | Frame ${currentFrame}/${frameCount-1} | Time: ${time.toFixed(2)}s`;
         document.getElementById('frameNum').textContent = currentFrame;
         document.getElementById('frameSlider').value = currentFrame;
+      } else if (currentMode === 'live' && playingRecording && recordedFrames.length > 0) {
+        // Recording playback info
+        const { width, height, depth } = simDimensions;
+        infoEl.textContent = `${width}x${height}x${depth} | Playback ${recordingFrame}/${recordedFrames.length-1} | ${playbackSpeed} fps`;
       } else if (currentMode === 'live' && propagator) {
         const { width, height, depth } = simDimensions;
         const step = propagator.getStep();
         const time = propagator.getTime();
         const mass = propagator.totalMass().toFixed(3);
-        infoEl.textContent = `${width}x${height}x${depth} | Step ${step} | Time: ${time.toFixed(2)}s | Mass: ${mass} | ${simBackend.toUpperCase()}`;
+        const recInfo = recording ? ` | REC: ${recordedFrames.length}` : (recordedFrames.length > 0 ? ` | Saved: ${recordedFrames.length}` : '');
+        infoEl.textContent = `${width}x${height}x${depth} | Step ${step} | Time: ${time.toFixed(2)}s | Mass: ${mass} | ${simBackend.toUpperCase()}${recInfo}`;
       } else {
         infoEl.textContent = 'Drop a .flwa file or load JSON configs for live simulation';
       }
@@ -592,10 +640,16 @@
         // Stop any playing animations
         playing = false;
         simPlaying = false;
+        playingRecording = false;
+        recording = false;
         document.getElementById('playBtn').textContent = 'Play';
         document.getElementById('playBtn').classList.remove('active');
         document.getElementById('simPlayBtn').textContent = 'Play';
         document.getElementById('simPlayBtn').classList.remove('active');
+        document.getElementById('playRecordBtn').textContent = 'Play';
+        document.getElementById('playRecordBtn').classList.remove('active');
+        document.getElementById('recordBtn').textContent = 'Record';
+        document.getElementById('recordBtn').classList.remove('recording');
 
         updateInfo();
       });
@@ -766,6 +820,14 @@
         document.getElementById('simPlayBtn').disabled = false;
         document.getElementById('stepBtn').disabled = false;
         document.getElementById('initBtn').disabled = false;
+        document.getElementById('recordBtn').disabled = false;
+
+        // Clear any previous recording
+        recordedFrames = [];
+        recordingFrame = 0;
+        recording = false;
+        playingRecording = false;
+        updateRecordingUI();
 
         setSimStatus(`Ready (${simBackend.toUpperCase()})`, 'ready');
         updateInfo();
@@ -805,6 +867,97 @@
     });
 
     // ========================================
+    // Recording Controls
+    // ========================================
+    function updateRecordingUI() {
+      document.getElementById('recordedFrameCount').textContent = recordedFrames.length;
+      document.getElementById('recordFrameSlider').max = Math.max(0, recordedFrames.length - 1);
+      document.getElementById('recordFrameNum').textContent = recordingFrame;
+      document.getElementById('recordFrameSlider').value = recordingFrame;
+
+      const hasFrames = recordedFrames.length > 0;
+      document.getElementById('playRecordBtn').disabled = !hasFrames;
+      document.getElementById('resetRecordBtn').disabled = !hasFrames;
+      document.getElementById('recordFrameSlider').disabled = !hasFrames;
+      document.getElementById('clearRecordBtn').disabled = !hasFrames && !recording;
+    }
+
+    function captureFrame() {
+      if (!propagator || !recording) return;
+      const data = propagator.getChannelData(0);
+      // Clone the data since it may be reused
+      recordedFrames.push(new Float32Array(data));
+      updateRecordingUI();
+    }
+
+    document.getElementById('recordBtn').addEventListener('click', () => {
+      if (!propagator) return;
+      recording = !recording;
+      document.getElementById('recordBtn').textContent = recording ? 'Stop' : 'Record';
+      document.getElementById('recordBtn').classList.toggle('recording', recording);
+
+      if (recording) {
+        // Stop playback if it's running
+        playingRecording = false;
+        document.getElementById('playRecordBtn').textContent = 'Play';
+        document.getElementById('playRecordBtn').classList.remove('active');
+        setSimStatus(`Recording... (${recordedFrames.length} frames)`, 'recording');
+      } else {
+        setSimStatus(`Recorded ${recordedFrames.length} frames`, 'ready');
+      }
+      updateRecordingUI();
+    });
+
+    document.getElementById('clearRecordBtn').addEventListener('click', () => {
+      recordedFrames = [];
+      recordingFrame = 0;
+      playingRecording = false;
+      document.getElementById('playRecordBtn').textContent = 'Play';
+      document.getElementById('playRecordBtn').classList.remove('active');
+      updateRecordingUI();
+      if (propagator) {
+        setSimStatus(`Ready (${simBackend.toUpperCase()})`, 'ready');
+      }
+    });
+
+    document.getElementById('playRecordBtn').addEventListener('click', () => {
+      if (recordedFrames.length === 0) return;
+      playingRecording = !playingRecording;
+      document.getElementById('playRecordBtn').textContent = playingRecording ? 'Pause' : 'Play';
+      document.getElementById('playRecordBtn').classList.toggle('active', playingRecording);
+
+      // Stop live simulation when playing recording
+      if (playingRecording && simPlaying) {
+        simPlaying = false;
+        document.getElementById('simPlayBtn').textContent = 'Play';
+        document.getElementById('simPlayBtn').classList.remove('active');
+      }
+    });
+
+    document.getElementById('resetRecordBtn').addEventListener('click', () => {
+      recordingFrame = 0;
+      if (recordedFrames.length > 0) {
+        updatePointCloud(recordedFrames[0], simDimensions.width, simDimensions.height, simDimensions.depth);
+        updateRecordingUI();
+        updateInfo();
+      }
+    });
+
+    document.getElementById('recordFrameSlider').addEventListener('input', (e) => {
+      recordingFrame = parseInt(e.target.value);
+      if (recordedFrames.length > 0 && recordingFrame < recordedFrames.length) {
+        updatePointCloud(recordedFrames[recordingFrame], simDimensions.width, simDimensions.height, simDimensions.depth);
+        updateRecordingUI();
+        updateInfo();
+      }
+    });
+
+    document.getElementById('playbackSpeedSlider').addEventListener('input', (e) => {
+      playbackSpeed = parseInt(e.target.value);
+      document.getElementById('playbackSpeedVal').textContent = playbackSpeed;
+    });
+
+    // ========================================
     // Visualization Controls
     // ========================================
     document.getElementById('opacitySlider').addEventListener('input', (e) => {
@@ -813,6 +966,8 @@
 
       if (currentMode === 'file' && animation) {
         updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
+      } else if (currentMode === 'live' && recordedFrames.length > 0 && recordingFrame < recordedFrames.length) {
+        updatePointCloud(recordedFrames[recordingFrame], simDimensions.width, simDimensions.height, simDimensions.depth);
       } else if (currentMode === 'live' && propagator) {
         const data = propagator.getChannelData(0);
         updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
@@ -825,6 +980,8 @@
 
       if (currentMode === 'file' && animation) {
         updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
+      } else if (currentMode === 'live' && recordedFrames.length > 0 && recordingFrame < recordedFrames.length) {
+        updatePointCloud(recordedFrames[recordingFrame], simDimensions.width, simDimensions.height, simDimensions.depth);
       } else if (currentMode === 'live' && propagator) {
         const data = propagator.getChannelData(0);
         updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
@@ -861,6 +1018,7 @@
     // Animation Loop
     // ========================================
     let lastTime = 0;
+    let lastRecordingTime = 0;
     const frameInterval = 100; // ms between frames for playback
 
     async function animate(time) {
@@ -874,8 +1032,8 @@
         lastTime = time;
       }
 
-      // Live simulation mode
-      if (currentMode === 'live' && simPlaying && propagator && time - lastTime > 50) {
+      // Live simulation mode - running simulation
+      if (currentMode === 'live' && simPlaying && propagator && !playingRecording && time - lastTime > 50) {
         try {
           if (simBackend === 'gpu') {
             await propagator.run(BigInt(stepsPerFrame));
@@ -885,6 +1043,13 @@
 
           const data = propagator.getChannelData(0);
           updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
+
+          // Capture frame if recording
+          if (recording) {
+            captureFrame();
+            setSimStatus(`Recording... (${recordedFrames.length} frames)`, 'recording');
+          }
+
           updateInfo();
         } catch (err) {
           console.error('Simulation error:', err);
@@ -894,6 +1059,16 @@
           setSimStatus(`Error: ${err.message}`, 'error');
         }
         lastTime = time;
+      }
+
+      // Recording playback mode
+      const playbackInterval = 1000 / playbackSpeed;
+      if (currentMode === 'live' && playingRecording && recordedFrames.length > 0 && time - lastRecordingTime > playbackInterval) {
+        recordingFrame = (recordingFrame + 1) % recordedFrames.length;
+        updatePointCloud(recordedFrames[recordingFrame], simDimensions.width, simDimensions.height, simDimensions.depth);
+        updateRecordingUI();
+        updateInfo();
+        lastRecordingTime = time;
       }
 
       controls.update();
