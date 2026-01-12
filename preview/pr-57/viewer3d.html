@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Flow Lenia 3D Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #111;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      overflow: hidden;
+    }
+    #container { width: 100vw; height: 100vh; }
+    #controls {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.85);
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 100;
+      max-width: 280px;
+    }
+    #controls h3 {
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: #88f;
+      border-bottom: 1px solid #333;
+      padding-bottom: 5px;
+    }
+    .input-group {
+      margin-bottom: 12px;
+    }
+    #controls input[type="file"] {
+      margin-bottom: 5px;
+      font-size: 11px;
+      width: 100%;
+    }
+    #controls label { display: block; margin: 6px 0 3px; font-size: 11px; color: #aaa; }
+    #controls input[type="range"] { width: 100%; }
+    #info {
+      position: fixed;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.85);
+      padding: 10px 15px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+    button {
+      background: #333;
+      color: #fff;
+      border: 1px solid #555;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 4px;
+      font-size: 12px;
+    }
+    button:hover { background: #444; }
+    button.active { background: #0066cc; border-color: #0088ff; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-row { display: flex; gap: 4px; margin-bottom: 10px; }
+    .status {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+    .status.loading { background: #553300; color: #ffcc00; }
+    .status.ready { background: #003300; color: #00ff00; }
+    .status.error { background: #330000; color: #ff4444; }
+    .mode-tabs {
+      display: flex;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #333;
+    }
+    .mode-tab {
+      flex: 1;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #888;
+      padding: 8px 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .mode-tab:hover { color: #aaa; }
+    .mode-tab.active {
+      color: #88f;
+      border-bottom-color: #88f;
+    }
+    .mode-content { display: none; }
+    .mode-content.active { display: block; }
+    select {
+      width: 100%;
+      background: #222;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/examples/jsm/controls/OrbitControls.js": "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js"
+      }
+    }
+  </script>
+  <script type="module" crossorigin src="/autoverse/preview/pr-57/assets/viewer3d-Cydzac8W.js"></script>
+  <link rel="modulepreload" crossorigin href="/autoverse/preview/pr-57/assets/modulepreload-polyfill-B5Qt9EMX.js">
+</head>
+<body>
+  <div id="container"></div>
+
+  <div id="controls">
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="file">Playback</button>
+      <button class="mode-tab" data-mode="live">Live Sim</button>
+    </div>
+
+    <!-- File Playback Mode -->
+    <div id="file-mode" class="mode-content active">
+      <h3>FLWA Playback</h3>
+      <div class="input-group">
+        <input type="file" id="flwaInput" accept=".flwa">
+      </div>
+      <div class="btn-row">
+        <button id="playBtn" disabled>Play</button>
+        <button id="resetBtn" disabled>Reset</button>
+      </div>
+      <label>Frame: <span id="frameNum">0</span></label>
+      <input type="range" id="frameSlider" min="0" max="100" value="0" disabled>
+    </div>
+
+    <!-- Live Simulation Mode -->
+    <div id="live-mode" class="mode-content">
+      <h3>Live Simulation</h3>
+      <div class="input-group">
+        <label>Preset:</label>
+        <select id="presetSelect">
+          <option value="">-- Select Preset --</option>
+          <option value="sphere3d">Sphere 3D</option>
+          <option value="torus3d">Torus 3D</option>
+        </select>
+      </div>
+      <div class="input-group" style="border-top: 1px solid #333; padding-top: 10px; margin-top: 10px;">
+        <label style="color: #666; font-size: 10px;">Or load custom files:</label>
+      </div>
+      <div class="input-group">
+        <label>Config JSON:</label>
+        <input type="file" id="configInput" accept=".json">
+      </div>
+      <div class="input-group">
+        <label>Seed JSON:</label>
+        <input type="file" id="seedInput" accept=".json">
+      </div>
+      <div class="input-group">
+        <label>Backend:</label>
+        <select id="backendSelect">
+          <option value="cpu">CPU</option>
+          <option value="gpu">GPU (WebGPU)</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button id="initBtn" disabled>Initialize</button>
+        <button id="simPlayBtn" disabled>Play</button>
+        <button id="stepBtn" disabled>Step</button>
+      </div>
+      <div class="input-group">
+        <label>Steps per frame: <span id="stepsVal">1</span></label>
+        <input type="range" id="stepsSlider" min="1" max="20" value="1">
+      </div>
+      <div id="simStatus" class="status" style="display:none;"></div>
+    </div>
+
+    <!-- Common Visualization Controls -->
+    <h3 style="margin-top: 12px;">Visualization</h3>
+    <label>Opacity: <span id="opacityVal">0.5</span></label>
+    <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.5">
+    <label>Threshold: <span id="threshVal">0.05</span></label>
+    <input type="range" id="threshSlider" min="0" max="0.5" step="0.01" value="0.05">
+  </div>
+
+  <div id="info">Drop a .flwa file or load JSON configs for live simulation</div>
+
+
+
+</body>
+</html>
