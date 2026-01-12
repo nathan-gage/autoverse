@@ -1036,69 +1036,67 @@
       const { width, height, depth } = simDimensions;
       const channels = 1;
       const frameCount = recordedFrames.length;
-      // Use actual frame data length from first frame
-      const actualFrameLength = recordedFrames[0].length;
-      const frameSize = actualFrameLength * 4; // 4 bytes per float32
+      const gridSize = width * height * depth;
 
-      // Calculate sizes
-      const headerSize = 48; // 4 + 2 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 16
-      const framesSize = frameCount * frameSize;
+      // Calculate sizes - use grid size, not actual frame length
+      const headerSize = 48;
+      const bytesPerFrame = gridSize * 4; // 4 bytes per float32
+      const framesSize = frameCount * bytesPerFrame;
       const indexSize = frameCount * 16;
       const totalSize = headerSize + framesSize + indexSize;
 
-      console.log(`Exporting: ${frameCount} frames, ${actualFrameLength} floats/frame, ${totalSize} bytes total`);
+      console.log(`Exporting: ${frameCount} frames, gridSize=${gridSize}, ${totalSize} bytes total`);
 
+      // Use Float32Array view for efficient frame writing
       const buffer = new ArrayBuffer(totalSize);
       const view = new DataView(buffer);
       const uint8 = new Uint8Array(buffer);
-      let offset = 0;
+
+      // Header offset tracker
+      let headerOffset = 0;
 
       // Magic: "FLWA"
-      uint8[0] = 'F'.charCodeAt(0);
-      uint8[1] = 'L'.charCodeAt(0);
-      uint8[2] = 'W'.charCodeAt(0);
-      uint8[3] = 'A'.charCodeAt(0);
-      offset += 4;
+      uint8[0] = 70; // 'F'
+      uint8[1] = 76; // 'L'
+      uint8[2] = 87; // 'W'
+      uint8[3] = 65; // 'A'
+      headerOffset = 4;
 
-      // Version (1)
-      view.setUint16(offset, 1, true); offset += 2;
-      // Flags (0)
-      view.setUint16(offset, 0, true); offset += 2;
+      view.setUint16(headerOffset, 1, true); headerOffset += 2; // Version
+      view.setUint16(headerOffset, 0, true); headerOffset += 2; // Flags
+      view.setUint32(headerOffset, width, true); headerOffset += 4;
+      view.setUint32(headerOffset, height, true); headerOffset += 4;
+      view.setUint32(headerOffset, depth, true); headerOffset += 4;
+      view.setUint32(headerOffset, channels, true); headerOffset += 4;
+      view.setUint32(headerOffset, frameCount, true); headerOffset += 4; // Frame count low
+      view.setUint32(headerOffset, 0, true); headerOffset += 4; // Frame count high
+      view.setFloat32(headerOffset, configJson?.dt || 0.1, true); headerOffset += 4; // dt
+      // Reserved 16 bytes (headerOffset now at 48)
 
-      // Dimensions
-      view.setUint32(offset, width, true); offset += 4;
-      view.setUint32(offset, height, true); offset += 4;
-      view.setUint32(offset, depth, true); offset += 4;
-      view.setUint32(offset, channels, true); offset += 4;
-
-      // Frame count (64-bit as two 32-bit values)
-      view.setUint32(offset, frameCount, true); offset += 4;
-      view.setUint32(offset, 0, true); offset += 4;
-
-      // dt (get from config or default)
-      const dt = configJson?.dt || 0.1;
-      view.setFloat32(offset, dt, true); offset += 4;
-
-      // Reserved (16 bytes)
-      offset += 16;
-
-      // Write frame data
+      // Write frame data using typed array for efficiency
+      const frameDataStart = headerSize;
       const frameOffsets = [];
+
       for (let i = 0; i < frameCount; i++) {
-        frameOffsets.push(offset);
+        const frameOffset = frameDataStart + i * bytesPerFrame;
+        frameOffsets.push(frameOffset);
+
         const frameData = recordedFrames[i];
-        for (let j = 0; j < frameData.length; j++) {
-          view.setFloat32(offset, frameData[j], true);
-          offset += 4;
+        const floatView = new Float32Array(buffer, frameOffset, gridSize);
+
+        // Copy frame data (truncate or pad if needed)
+        const copyLen = Math.min(frameData.length, gridSize);
+        for (let j = 0; j < copyLen; j++) {
+          floatView[j] = frameData[j];
         }
       }
 
-      // Write frame index
+      // Write frame index at the end
+      const indexStart = frameDataStart + framesSize;
       for (let i = 0; i < frameCount; i++) {
-        // Frame offset (64-bit)
-        view.setBigUint64(offset, BigInt(frameOffsets[i]), true); offset += 8;
-        // Frame size (64-bit)
-        view.setBigUint64(offset, BigInt(frameSize), true); offset += 8;
+        const indexOffset = indexStart + i * 16;
+        view.setBigUint64(indexOffset, BigInt(frameOffsets[i]), true);
+        view.setBigUint64(indexOffset + 8, BigInt(bytesPerFrame), true);
       }
 
       // Create download
