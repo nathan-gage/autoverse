@@ -183,24 +183,45 @@
       </div>
       <div id="simStatus" class="status" style="display:none;"></div>
 
-      <!-- Recording Controls -->
+      <!-- Batch Recording (offline) -->
       <div class="recording-section">
-        <h4>Recording</h4>
-        <div class="btn-row">
-          <button id="recordBtn" disabled>Record</button>
-          <button id="clearRecordBtn" disabled>Clear</button>
+        <h4>Batch Record</h4>
+        <div class="input-group">
+          <label>Frames to generate: <span id="batchFramesVal">100</span></label>
+          <input type="range" id="batchFramesSlider" min="10" max="1000" step="10" value="100">
         </div>
+        <div class="input-group">
+          <label>Steps per frame: <span id="batchStepsVal">1</span></label>
+          <input type="range" id="batchStepsSlider" min="1" max="20" value="1">
+        </div>
+        <div class="btn-row">
+          <button id="batchRecordBtn" disabled>Generate</button>
+          <button id="cancelBatchBtn" disabled style="display:none;">Cancel</button>
+        </div>
+        <div id="batchProgress" style="display:none;">
+          <label>Progress: <span id="batchProgressVal">0</span>%</label>
+          <div style="background:#333;height:8px;border-radius:4px;overflow:hidden;margin-top:4px;">
+            <div id="batchProgressBar" style="background:#0a0;height:100%;width:0%;transition:width 0.1s;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Playback Controls -->
+      <div class="recording-section">
+        <h4>Playback</h4>
         <label>Frames: <span id="recordedFrameCount">0</span></label>
-        <div class="btn-row" style="margin-top: 8px;">
+        <div class="btn-row">
           <button id="playRecordBtn" disabled>Play</button>
           <button id="resetRecordBtn" disabled>Reset</button>
+          <button id="exportRecordBtn" disabled>Export</button>
         </div>
         <label>Frame: <span id="recordFrameNum">0</span></label>
         <input type="range" id="recordFrameSlider" min="0" max="0" value="0" disabled>
         <div class="input-group">
-          <label>Playback Speed: <span id="playbackSpeedVal">60</span> fps</label>
+          <label>Speed: <span id="playbackSpeedVal">60</span> fps</label>
           <input type="range" id="playbackSpeedSlider" min="10" max="120" value="60">
         </div>
+        <button id="clearRecordBtn" disabled style="width:100%;margin-top:8px;">Clear Recording</button>
       </div>
     </div>
 
@@ -450,10 +471,15 @@
 
     // Recording state
     let recordedFrames = [];
-    let recording = false;
     let playingRecording = false;
     let recordingFrame = 0;
     let playbackSpeed = 60; // fps
+
+    // Batch recording state
+    let batchRecording = false;
+    let batchCancelled = false;
+    let batchFramesToGenerate = 100;
+    let batchStepsPerFrame = 1;
 
     // Visualization state
     let opacity = 0.5;
@@ -618,7 +644,7 @@
         const step = propagator.getStep();
         const time = propagator.getTime();
         const mass = propagator.totalMass().toFixed(3);
-        const recInfo = recording ? ` | REC: ${recordedFrames.length}` : (recordedFrames.length > 0 ? ` | Saved: ${recordedFrames.length}` : '');
+        const recInfo = recordedFrames.length > 0 ? ` | Recorded: ${recordedFrames.length}` : '';
         infoEl.textContent = `${width}x${height}x${depth} | Step ${step} | Time: ${time.toFixed(2)}s | Mass: ${mass} | ${simBackend.toUpperCase()}${recInfo}`;
       } else {
         infoEl.textContent = 'Drop a .flwa file or load JSON configs for live simulation';
@@ -641,15 +667,12 @@
         playing = false;
         simPlaying = false;
         playingRecording = false;
-        recording = false;
         document.getElementById('playBtn').textContent = 'Play';
         document.getElementById('playBtn').classList.remove('active');
         document.getElementById('simPlayBtn').textContent = 'Play';
         document.getElementById('simPlayBtn').classList.remove('active');
         document.getElementById('playRecordBtn').textContent = 'Play';
         document.getElementById('playRecordBtn').classList.remove('active');
-        document.getElementById('recordBtn').textContent = 'Record';
-        document.getElementById('recordBtn').classList.remove('recording');
 
         updateInfo();
       });
@@ -820,12 +843,11 @@
         document.getElementById('simPlayBtn').disabled = false;
         document.getElementById('stepBtn').disabled = false;
         document.getElementById('initBtn').disabled = false;
-        document.getElementById('recordBtn').disabled = false;
+        document.getElementById('batchRecordBtn').disabled = false;
 
         // Clear any previous recording
         recordedFrames = [];
         recordingFrame = 0;
-        recording = false;
         playingRecording = false;
         updateRecordingUI();
 
@@ -876,36 +898,223 @@
       document.getElementById('recordFrameSlider').value = recordingFrame;
 
       const hasFrames = recordedFrames.length > 0;
-      document.getElementById('playRecordBtn').disabled = !hasFrames;
-      document.getElementById('resetRecordBtn').disabled = !hasFrames;
-      document.getElementById('recordFrameSlider').disabled = !hasFrames;
-      document.getElementById('clearRecordBtn').disabled = !hasFrames && !recording;
+      document.getElementById('playRecordBtn').disabled = !hasFrames || batchRecording;
+      document.getElementById('resetRecordBtn').disabled = !hasFrames || batchRecording;
+      document.getElementById('recordFrameSlider').disabled = !hasFrames || batchRecording;
+      document.getElementById('exportRecordBtn').disabled = !hasFrames || batchRecording;
+      document.getElementById('clearRecordBtn').disabled = !hasFrames || batchRecording;
     }
 
-    function captureFrame() {
-      if (!propagator || !recording) return;
-      const data = propagator.getChannelData(0);
-      // Clone the data since it may be reused
-      recordedFrames.push(new Float32Array(data));
+    // Batch sliders
+    document.getElementById('batchFramesSlider').addEventListener('input', (e) => {
+      batchFramesToGenerate = parseInt(e.target.value);
+      document.getElementById('batchFramesVal').textContent = batchFramesToGenerate;
+    });
+
+    document.getElementById('batchStepsSlider').addEventListener('input', (e) => {
+      batchStepsPerFrame = parseInt(e.target.value);
+      document.getElementById('batchStepsVal').textContent = batchStepsPerFrame;
+    });
+
+    async function runBatchRecording() {
+      if (!propagator || !simDimensions || batchRecording) return;
+
+      batchRecording = true;
+      batchCancelled = false;
+      recordedFrames = [];
+      recordingFrame = 0;
+
+      // Update UI
+      document.getElementById('batchRecordBtn').disabled = true;
+      document.getElementById('cancelBatchBtn').disabled = false;
+      document.getElementById('cancelBatchBtn').style.display = '';
+      document.getElementById('batchProgress').style.display = 'block';
+      document.getElementById('simPlayBtn').disabled = true;
+      document.getElementById('stepBtn').disabled = true;
+      document.getElementById('initBtn').disabled = true;
       updateRecordingUI();
-    }
 
-    document.getElementById('recordBtn').addEventListener('click', () => {
-      if (!propagator) return;
-      recording = !recording;
-      document.getElementById('recordBtn').textContent = recording ? 'Stop' : 'Record';
-      document.getElementById('recordBtn').classList.toggle('recording', recording);
+      const startTime = performance.now();
 
-      if (recording) {
-        // Stop playback if it's running
-        playingRecording = false;
-        document.getElementById('playRecordBtn').textContent = 'Play';
-        document.getElementById('playRecordBtn').classList.remove('active');
-        setSimStatus(`Recording... (${recordedFrames.length} frames)`, 'recording');
-      } else {
-        setSimStatus(`Recorded ${recordedFrames.length} frames`, 'ready');
+      // Re-initialize the propagator to start fresh
+      try {
+        const wasm = await loadWasmModule();
+        const configStr = JSON.stringify(configJson);
+        const seedStr = JSON.stringify(seedJson);
+
+        if (simBackend === 'gpu') {
+          propagator = await new wasm.WasmGpuPropagator3D(configStr, seedStr);
+        } else {
+          propagator = new wasm.WasmPropagator3D(configStr, seedStr);
+        }
+      } catch (err) {
+        console.error('Failed to reinitialize propagator:', err);
+        setSimStatus(`Error: ${err.message}`, 'error');
+        finishBatchRecording(false);
+        return;
       }
+
+      setSimStatus(`Generating ${batchFramesToGenerate} frames...`, 'loading');
+
+      // Capture initial frame
+      const initialData = propagator.getChannelData(0);
+      recordedFrames.push(new Float32Array(initialData));
+
+      // Run simulation in chunks to allow UI updates
+      const chunkSize = 10; // Process 10 frames per chunk
+
+      for (let i = 0; i < batchFramesToGenerate && !batchCancelled; ) {
+        const framesToProcess = Math.min(chunkSize, batchFramesToGenerate - i);
+
+        for (let j = 0; j < framesToProcess && !batchCancelled; j++) {
+          // Run simulation steps
+          if (simBackend === 'gpu') {
+            await propagator.run(BigInt(batchStepsPerFrame));
+          } else {
+            propagator.run(BigInt(batchStepsPerFrame));
+          }
+
+          // Capture frame
+          const data = propagator.getChannelData(0);
+          recordedFrames.push(new Float32Array(data));
+          i++;
+        }
+
+        // Update progress
+        const progress = Math.round((i / batchFramesToGenerate) * 100);
+        document.getElementById('batchProgressVal').textContent = progress;
+        document.getElementById('batchProgressBar').style.width = `${progress}%`;
+
+        // Yield to UI
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+
+      if (batchCancelled) {
+        setSimStatus(`Cancelled after ${recordedFrames.length} frames (${elapsed}s)`, 'ready');
+      } else {
+        setSimStatus(`Generated ${recordedFrames.length} frames in ${elapsed}s`, 'ready');
+      }
+
+      finishBatchRecording(true);
+    }
+
+    function finishBatchRecording(success) {
+      batchRecording = false;
+
+      // Update UI
+      document.getElementById('batchRecordBtn').disabled = false;
+      document.getElementById('cancelBatchBtn').disabled = true;
+      document.getElementById('cancelBatchBtn').style.display = 'none';
+      document.getElementById('batchProgress').style.display = 'none';
+      document.getElementById('simPlayBtn').disabled = false;
+      document.getElementById('stepBtn').disabled = false;
+      document.getElementById('initBtn').disabled = false;
+
+      // Show final frame in viewer
+      if (success && recordedFrames.length > 0) {
+        recordingFrame = 0;
+        updatePointCloud(recordedFrames[0], simDimensions.width, simDimensions.height, simDimensions.depth);
+      }
+
       updateRecordingUI();
+      updateInfo();
+    }
+
+    document.getElementById('batchRecordBtn').addEventListener('click', () => {
+      runBatchRecording();
+    });
+
+    document.getElementById('cancelBatchBtn').addEventListener('click', () => {
+      batchCancelled = true;
+    });
+
+    function exportRecordingToFlwa() {
+      if (recordedFrames.length === 0 || !simDimensions) return;
+
+      const { width, height, depth } = simDimensions;
+      const channels = 1;
+      const frameCount = recordedFrames.length;
+      const gridSize = width * height * depth;
+      const frameSize = gridSize * channels * 4; // 4 bytes per float32
+
+      // Calculate sizes
+      const headerSize = 48; // 4 + 2 + 2 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 16
+      const framesSize = frameCount * frameSize;
+      const indexSize = frameCount * 16;
+      const totalSize = headerSize + framesSize + indexSize;
+
+      const buffer = new ArrayBuffer(totalSize);
+      const view = new DataView(buffer);
+      const uint8 = new Uint8Array(buffer);
+      let offset = 0;
+
+      // Magic: "FLWA"
+      uint8[0] = 'F'.charCodeAt(0);
+      uint8[1] = 'L'.charCodeAt(0);
+      uint8[2] = 'W'.charCodeAt(0);
+      uint8[3] = 'A'.charCodeAt(0);
+      offset += 4;
+
+      // Version (1)
+      view.setUint16(offset, 1, true); offset += 2;
+      // Flags (0)
+      view.setUint16(offset, 0, true); offset += 2;
+
+      // Dimensions
+      view.setUint32(offset, width, true); offset += 4;
+      view.setUint32(offset, height, true); offset += 4;
+      view.setUint32(offset, depth, true); offset += 4;
+      view.setUint32(offset, channels, true); offset += 4;
+
+      // Frame count (64-bit as two 32-bit values)
+      view.setUint32(offset, frameCount, true); offset += 4;
+      view.setUint32(offset, 0, true); offset += 4;
+
+      // dt (get from config or default)
+      const dt = configJson?.dt || 0.1;
+      view.setFloat32(offset, dt, true); offset += 4;
+
+      // Reserved (16 bytes)
+      offset += 16;
+
+      // Write frame data
+      const frameOffsets = [];
+      for (let i = 0; i < frameCount; i++) {
+        frameOffsets.push(offset);
+        const frameData = recordedFrames[i];
+        for (let j = 0; j < frameData.length; j++) {
+          view.setFloat32(offset, frameData[j], true);
+          offset += 4;
+        }
+      }
+
+      // Write frame index
+      for (let i = 0; i < frameCount; i++) {
+        // Frame offset (64-bit)
+        view.setBigUint64(offset, BigInt(frameOffsets[i]), true); offset += 8;
+        // Frame size (64-bit)
+        view.setBigUint64(offset, BigInt(frameSize), true); offset += 8;
+      }
+
+      // Create download
+      const blob = new Blob([buffer], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.download = `recording-${width}x${height}x${depth}-${frameCount}frames-${timestamp}.flwa`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setSimStatus(`Exported ${frameCount} frames`, 'ready');
+    }
+
+    document.getElementById('exportRecordBtn').addEventListener('click', () => {
+      exportRecordingToFlwa();
     });
 
     document.getElementById('clearRecordBtn').addEventListener('click', () => {
@@ -966,9 +1175,9 @@
 
       if (currentMode === 'file' && animation) {
         updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
-      } else if (currentMode === 'live' && recordedFrames.length > 0 && recordingFrame < recordedFrames.length) {
+      } else if (currentMode === 'live' && !batchRecording && recordedFrames.length > 0 && recordingFrame < recordedFrames.length) {
         updatePointCloud(recordedFrames[recordingFrame], simDimensions.width, simDimensions.height, simDimensions.depth);
-      } else if (currentMode === 'live' && propagator) {
+      } else if (currentMode === 'live' && !batchRecording && propagator) {
         const data = propagator.getChannelData(0);
         updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
       }
@@ -980,9 +1189,9 @@
 
       if (currentMode === 'file' && animation) {
         updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
-      } else if (currentMode === 'live' && recordedFrames.length > 0 && recordingFrame < recordedFrames.length) {
+      } else if (currentMode === 'live' && !batchRecording && recordedFrames.length > 0 && recordingFrame < recordedFrames.length) {
         updatePointCloud(recordedFrames[recordingFrame], simDimensions.width, simDimensions.height, simDimensions.depth);
-      } else if (currentMode === 'live' && propagator) {
+      } else if (currentMode === 'live' && !batchRecording && propagator) {
         const data = propagator.getChannelData(0);
         updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
       }
@@ -1033,7 +1242,7 @@
       }
 
       // Live simulation mode - running simulation
-      if (currentMode === 'live' && simPlaying && propagator && !playingRecording && time - lastTime > 50) {
+      if (currentMode === 'live' && simPlaying && propagator && !playingRecording && !batchRecording && time - lastTime > 50) {
         try {
           if (simBackend === 'gpu') {
             await propagator.run(BigInt(stepsPerFrame));
@@ -1043,13 +1252,6 @@
 
           const data = propagator.getChannelData(0);
           updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
-
-          // Capture frame if recording
-          if (recording) {
-            captureFrame();
-            setSimStatus(`Recording... (${recordedFrames.length} frames)`, 'recording');
-          }
-
           updateInfo();
         } catch (err) {
           console.error('Simulation error:', err);
