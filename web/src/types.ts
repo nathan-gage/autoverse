@@ -218,26 +218,107 @@ export interface ArchiveConfig {
 
 export interface EvolutionProgress {
 	generation: number;
+	total_generations: number;
+	evaluations_completed: number;
+	evaluations_total: number;
 	best_fitness: number;
-	mean_fitness: number;
-	phase: "Initializing" | "Evaluating" | "Selecting" | "Complete";
-	evaluations: number;
-	time_elapsed_secs: number;
+	avg_fitness: number;
+	generation_best: number;
+	stagnation_count: number;
 	best_candidate?: CandidateSnapshot;
-	top_candidates?: CandidateSnapshot[];
+	top_candidates: CandidateSnapshot[];
+	history: EvolutionHistory;
+	phase: EvolutionPhase;
 }
+
+export type EvolutionPhase =
+	| "Initializing"
+	| "Evaluating"
+	| "Selecting"
+	| "Reproducing"
+	| "Complete"
+	| "Stopped";
 
 export interface CandidateSnapshot {
 	id: number;
 	fitness: number;
+	metric_scores: MetricScore[];
+	genome: Genome;
+	config: SimulationConfig;
+	seed: Seed;
 	generation: number;
+	parents: number[];
+	behavior: BehaviorStats;
+}
+
+export interface MetricScore {
+	name: string;
+	score: number;
+	weight: number;
+	weighted_score: number;
+}
+
+export interface BehaviorStats {
+	final_mass: number;
+	initial_mass: number;
+	center_of_mass_trajectory: [number, number][];
+	total_displacement: number;
+	radius_over_time: number[];
+	final_radius: number;
+	active_cells: number;
+	max_activation: number;
+}
+
+export interface Genome {
+	kernels: KernelGenome[];
+	flow: FlowGenome;
+	seed?: SeedGenome;
+}
+
+export interface KernelGenome {
+	radius: number;
+	rings: RingGenome[];
+	weight: number;
+	mu: number;
+	sigma: number;
+	source_channel: number;
+	target_channel: number;
+}
+
+export interface RingGenome {
+	amplitude: number;
+	distance: number;
+	width: number;
+}
+
+export interface FlowGenome {
+	beta_a: number;
+	n: number;
+	distribution_size: number;
+}
+
+export type SeedGenome =
+	| { type: "GaussianBlob"; center: [number, number]; radius: number; amplitude: number }
+	| {
+			type: "Ring";
+			center: [number, number];
+			inner_radius: number;
+			outer_radius: number;
+			amplitude: number;
+	  }
+	| { type: "MultiBlob"; blobs: BlobGenome[] };
+
+export interface BlobGenome {
+	center: [number, number];
+	radius: number;
+	amplitude: number;
 }
 
 export interface EvolutionResult {
 	best: CandidateSnapshot;
 	archive: CandidateSnapshot[];
 	stats: EvolutionStats;
-	history?: EvolutionHistory;
+	history: EvolutionHistory;
 }
 
 export interface EvolutionStats {
@@ -251,14 +332,10 @@ export interface EvolutionStats {
 }
 
 export interface EvolutionHistory {
-	generations: GenerationStats[];
-}
-
-export interface GenerationStats {
-	generation: number;
-	best_fitness: number;
-	mean_fitness: number;
-	diversity: number;
+	best_fitness: number[];
+	avg_fitness: number[];
+	fitness_std: number[];
+	diversity: number[];
 }
 
 export interface BestCandidateState {

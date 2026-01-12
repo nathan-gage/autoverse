@@ -1,5 +1,6 @@
-// Evolution state store - runs evolution with cooperative yielding to prevent UI lockup
+// Evolution state store - runs evolution in a web worker to prevent UI lockup
 import { derived, get, writable } from "svelte/store";
+import type { WorkerRequest, WorkerResponse } from "../evolution.worker";
 import type {
 	BestCandidateState,
 	EvolutionConfig,
@@ -7,22 +8,6 @@ import type {
 	EvolutionResult,
 } from "../types";
 import { log, pause, reset, simulationStore } from "./simulation";
-
-// WASM module types for evolution
-interface WasmEvolutionModule {
-	default: () => Promise<void>;
-	WasmEvolutionEngine: new (configJson: string) => WasmEvolutionEngine;
-}
-
-interface WasmEvolutionEngine {
-	step(): EvolutionProgress | string;
-	isComplete(): boolean;
-	getResult(): EvolutionResult | string;
-	cancel(): void;
-	getBestCandidateState(): BestCandidateState | string | null;
-	setDefaultSeed(seedJson: string): void;
-	free(): void;
-}
 
 export interface EvolutionStoreState {
 	initialized: boolean;
@@ -49,40 +34,109 @@ export const isEvolutionRunning = derived(evolutionStore, ($s) => $s.running);
 export const evolutionProgress = derived(evolutionStore, ($s) => $s.progress);
 export const bestCandidateState = derived(evolutionStore, ($s) => $s.bestState);
 
-// Module state
-let wasmModule: WasmEvolutionModule | null = null;
-let engine: WasmEvolutionEngine | null = null;
-let evolutionTimeoutId: number | null = null;
+// Worker instance
+let worker: Worker | null = null;
+let initPromise: Promise<void> | null = null;
 
-function parseWasmJson<T>(value: T | string | null): T | null {
-	if (value === null) return null;
-	if (typeof value === "string") {
-		try {
-			return JSON.parse(value) as T;
-		} catch {
-			return null;
-		}
+function postToWorker(msg: WorkerRequest): void {
+	if (worker) {
+		worker.postMessage(msg);
 	}
-	return value;
+}
+
+function handleWorkerMessage(event: MessageEvent<WorkerResponse>): void {
+	const msg = event.data;
+
+	switch (msg.type) {
+		case "ready":
+			evolutionStore.update((s) => ({ ...s, initialized: true }));
+			log("Evolution engine initialized (worker)", "success");
+			break;
+
+		case "progress":
+			evolutionStore.update((s) => ({
+				...s,
+				progress: msg.data,
+				bestState: msg.bestState ?? s.bestState,
+			}));
+			break;
+
+		case "complete":
+			evolutionStore.update((s) => ({
+				...s,
+				running: false,
+				result: msg.result,
+				bestState: msg.bestState ?? s.bestState,
+			}));
+			if (msg.result) {
+				log(
+					`Evolution complete: fitness=${msg.result.stats.best_fitness.toFixed(3)}, reason=${msg.result.stats.stop_reason}`,
+					"success",
+				);
+			}
+			break;
+
+		case "preview":
+			evolutionStore.update((s) => ({ ...s, bestState: msg.state }));
+			break;
+
+		case "error":
+			evolutionStore.update((s) => ({
+				...s,
+				running: false,
+				error: msg.message,
+			}));
+			log(`Evolution error: ${msg.message}`, "error");
+			break;
+	}
 }
 
 export async function initializeEvolution(): Promise<void> {
-	if (wasmModule) {
+	if (worker) {
 		evolutionStore.update((s) => ({ ...s, initialized: true }));
 		return;
 	}
 
-	try {
-		const baseUrl = import.meta.env.BASE_URL || "/";
-		const wasmUrl = `${baseUrl}pkg/flow_lenia.js`;
-		wasmModule = (await import(/* @vite-ignore */ wasmUrl)) as WasmEvolutionModule;
-		await wasmModule.default();
-		evolutionStore.update((s) => ({ ...s, initialized: true }));
-		log("Evolution engine initialized", "success");
-	} catch (error) {
-		log(`Failed to initialize evolution: ${error}`, "error");
-		throw error;
+	// Return existing promise if already initializing
+	if (initPromise) {
+		return initPromise;
 	}
+
+	initPromise = new Promise<void>((resolve, reject) => {
+		try {
+			// Create worker - Vite will bundle this properly
+			worker = new Worker(new URL("../evolution.worker.ts", import.meta.url), {
+				type: "module",
+			});
+
+			// Set up message handler
+			worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+				handleWorkerMessage(event);
+
+				// Resolve init promise when ready
+				if (event.data.type === "ready") {
+					resolve();
+				} else if (event.data.type === "error" && !get(evolutionStore).initialized) {
+					reject(new Error(event.data.message));
+				}
+			};
+
+			worker.onerror = (error) => {
+				log(`Worker error: ${error.message}`, "error");
+				reject(error);
+			};
+
+			// Initialize WASM in worker
+			const baseUrl = import.meta.env.BASE_URL || "/";
+			const wasmUrl = `${baseUrl}pkg/flow_lenia.js`;
+			postToWorker({ type: "init", wasmUrl });
+		} catch (error) {
+			log(`Failed to create evolution worker: ${error}`, "error");
+			reject(error);
+		}
+	});
+
+	return initPromise;
 }
 
 export function getDefaultEvolutionConfig(): EvolutionConfig {
@@ -133,8 +187,8 @@ export function getDefaultEvolutionConfig(): EvolutionConfig {
 }
 
 export async function startEvolution(config: EvolutionConfig): Promise<void> {
-	if (!wasmModule) {
-		throw new Error("Evolution module not initialized");
+	if (!worker) {
+		throw new Error("Evolution worker not initialized");
 	}
 
 	// Pause main simulation
@@ -143,103 +197,30 @@ export async function startEvolution(config: EvolutionConfig): Promise<void> {
 	// Cancel any existing evolution
 	cancelEvolution();
 
-	try {
-		if (engine) {
-			engine.free();
-		}
+	evolutionStore.update((s) => ({
+		...s,
+		running: true,
+		progress: null,
+		result: null,
+		error: null,
+	}));
 
-		engine = new wasmModule.WasmEvolutionEngine(JSON.stringify(config));
-		evolutionStore.update((s) => ({
-			...s,
-			running: true,
-			progress: null,
-			result: null,
-			error: null,
-		}));
+	log(
+		`Evolution started: pop=${config.population.size}, gens=${config.population.max_generations}`,
+		"info",
+	);
 
-		log(
-			`Evolution started: pop=${config.population.size}, gens=${config.population.max_generations}`,
-			"info",
-		);
-
-		// Start evolution loop with cooperative yielding
-		runEvolutionStep();
-	} catch (error) {
-		evolutionStore.update((s) => ({ ...s, error: String(error) }));
-		log(`Evolution error: ${error}`, "error");
-		throw error;
-	}
-}
-
-function runEvolutionStep(): void {
-	const state = get(evolutionStore);
-	if (!state.running || !engine) {
-		return;
-	}
-
-	try {
-		// Run one evolution step
-		const progressRaw = engine.step();
-		const progress = parseWasmJson<EvolutionProgress>(progressRaw);
-
-		// Get best candidate state for preview
-		const bestStateRaw = engine.getBestCandidateState();
-		const bestState = parseWasmJson<BestCandidateState>(bestStateRaw);
-
-		evolutionStore.update((s) => ({
-			...s,
-			progress,
-			bestState: bestState ?? s.bestState,
-		}));
-
-		if (engine.isComplete()) {
-			const resultRaw = engine.getResult();
-			const result = parseWasmJson<EvolutionResult>(resultRaw);
-
-			evolutionStore.update((s) => ({
-				...s,
-				running: false,
-				result,
-			}));
-
-			if (result) {
-				log(
-					`Evolution complete: fitness=${result.stats.best_fitness.toFixed(3)}, reason=${result.stats.stop_reason}`,
-					"success",
-				);
-			}
-			return;
-		}
-
-		// Schedule next step with setTimeout to yield to UI
-		// Using setTimeout(0) allows the browser to process UI updates between steps
-		evolutionTimeoutId = window.setTimeout(() => runEvolutionStep(), 0);
-	} catch (error) {
-		evolutionStore.update((s) => ({
-			...s,
-			running: false,
-			error: String(error),
-		}));
-		log(`Evolution error: ${error}`, "error");
-	}
+	// Send start command to worker
+	postToWorker({
+		type: "start",
+		configJson: JSON.stringify(config),
+	});
 }
 
 export function cancelEvolution(): void {
-	if (evolutionTimeoutId !== null) {
-		clearTimeout(evolutionTimeoutId);
-		evolutionTimeoutId = null;
-	}
-
 	const state = get(evolutionStore);
-	if (engine && state.running) {
-		engine.cancel();
-		try {
-			const resultRaw = engine.getResult();
-			const result = parseWasmJson<EvolutionResult>(resultRaw);
-			evolutionStore.update((s) => ({ ...s, result }));
-		} catch {
-			// Ignore errors getting result after cancel
-		}
+	if (worker && state.running) {
+		postToWorker({ type: "cancel" });
 		log("Evolution cancelled", "warn");
 	}
 
@@ -287,9 +268,10 @@ export function loadBestCandidate(): void {
 // Cleanup function
 export function destroyEvolution(): void {
 	cancelEvolution();
-	if (engine) {
-		engine.free();
-		engine = null;
+	if (worker) {
+		worker.terminate();
+		worker = null;
 	}
+	initPromise = null;
 	evolutionStore.set(initialState);
 }
