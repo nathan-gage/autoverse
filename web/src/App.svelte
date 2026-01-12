@@ -8,11 +8,13 @@
 	import { settings } from "./stores/settings";
 	import { loadSavedScheme, currentScheme } from "./stores/themes";
 	import { simulationCanvas } from "./stores/interaction";
+	import { mobileStore } from "./stores/mobile";
 	import Header from "./components/layout/Header.svelte";
 	import Footer from "./components/layout/Footer.svelte";
 	import LeftSidebar from "./components/layout/LeftSidebar.svelte";
 	import RightSidebar from "./components/layout/RightSidebar.svelte";
 	import SimulationView from "./components/canvas/SimulationView.svelte";
+	import BottomSheet from "./components/mobile/BottomSheet.svelte";
 
 	let initialized = false;
 	let initError: string | null = null;
@@ -128,6 +130,10 @@
 		// Load saved theme
 		loadSavedScheme();
 
+		// Initialize mobile detection and listen for resize
+		mobileStore.checkViewport();
+		window.addEventListener("resize", mobileStore.checkViewport);
+
 		log("SYS.BOOT", "info");
 		log("Loading WASM module...", "info");
 
@@ -153,6 +159,7 @@
 		if (animationFrame) {
 			cancelAnimationFrame(animationFrame);
 		}
+		window.removeEventListener("resize", mobileStore.checkViewport);
 	});
 </script>
 
@@ -177,19 +184,29 @@
 		</div>
 	</div>
 {:else}
-	<div class="app-container" bind:this={appContainer}>
+	<div class="app-container" class:mobile-layout={$mobileStore.isMobile} bind:this={appContainer}>
 		<!-- Canvas-based ambient glow layer -->
 		<canvas class="glow-layer" bind:this={glowCanvas}></canvas>
 
-		<Header />
-
-		<div class="main-content">
-			<LeftSidebar />
-			<SimulationView />
-			<RightSidebar />
-		</div>
-
-		<Footer />
+		{#if $mobileStore.isMobile}
+			<!-- Mobile Layout -->
+			<div class="mobile-header">
+				<span class="mobile-title">FLOW_LENIA</span>
+			</div>
+			<div class="mobile-canvas-container">
+				<SimulationView />
+			</div>
+			<BottomSheet />
+		{:else}
+			<!-- Desktop Layout -->
+			<Header />
+			<div class="main-content">
+				<LeftSidebar />
+				<SimulationView />
+				<RightSidebar />
+			</div>
+			<Footer />
+		{/if}
 	</div>
 
 	<!-- CRT Effects -->
@@ -285,5 +302,45 @@
 		filter: blur(60px);
 		opacity: 0.7;
 		mix-blend-mode: screen;
+	}
+
+	/* Mobile Layout */
+	.mobile-layout {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.mobile-header {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 8px 12px;
+		border-bottom: 1px solid var(--color-primary-dim);
+		background: var(--color-void);
+		flex-shrink: 0;
+	}
+
+	.mobile-title {
+		font-size: 14px;
+		font-weight: bold;
+		color: var(--color-primary);
+		letter-spacing: 0.2em;
+		text-shadow: 0 0 10px var(--color-primary-glow);
+	}
+
+	.mobile-canvas-container {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 8px;
+		position: relative;
+		z-index: 1;
+	}
+
+	/* Mobile layout hides glow layer for performance */
+	.mobile-layout .glow-layer {
+		display: none;
 	}
 </style>
