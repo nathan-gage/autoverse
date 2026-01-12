@@ -125,11 +125,120 @@ export type InteractionMode = "view" | "select" | "draw" | "erase";
 
 export type BackendType = "cpu" | "gpu";
 
+export type ColorScheme = "grayscale" | "thermal" | "viridis" | "theme";
+
 export interface ViewerSettings {
-	colorScheme: "grayscale" | "thermal" | "viridis";
+	colorScheme: ColorScheme;
 	showGrid: boolean;
 	showSelection: boolean;
 	brushSize: number;
 	brushIntensity: number;
 	backend: BackendType;
+}
+
+// Evolution Types
+export interface EvolutionConfig {
+	base_config: SimulationConfig;
+	seed_pattern_type: "Blob" | "Ring" | "MultiBlob";
+	constraints: GenomeConstraints;
+	fitness: FitnessConfig;
+	evaluation: EvaluationConfig;
+	population: PopulationConfig;
+	algorithm: SearchAlgorithm;
+	archive: ArchiveConfig;
+	max_generations: number;
+	target_fitness?: number;
+	stagnation_limit?: number;
+	random_seed?: number;
+}
+
+export interface GenomeConstraints {
+	radius?: { min: number; max: number };
+	amplitude?: { min: number; max: number };
+	x?: { min: number; max: number };
+	y?: { min: number; max: number };
+	mu?: { min: number; max: number };
+	sigma?: { min: number; max: number };
+	beta_a?: { min: number; max: number };
+}
+
+export interface FitnessConfig {
+	metrics: FitnessMetricWeight[];
+	aggregation: "WeightedSum" | "Product" | "Min";
+}
+
+export interface FitnessMetricWeight {
+	metric: FitnessMetric;
+	weight: number;
+}
+
+export type FitnessMetric =
+	| "Persistence"
+	| "Compactness"
+	| "Locomotion"
+	| "Complexity"
+	| "MassConcentration"
+	| "Stability"
+	| { Periodicity: { period: number; tolerance: number } }
+	| { GliderScore: { min_displacement: number } }
+	| { OscillatorScore: { max_period: number; threshold: number } };
+
+export interface EvaluationConfig {
+	steps: number;
+	sample_interval: number;
+	warmup_steps: number;
+}
+
+export interface PopulationConfig {
+	size: number;
+	elitism: number;
+}
+
+export interface SearchAlgorithm {
+	type: "GeneticAlgorithm";
+	config: GeneticAlgorithmConfig;
+}
+
+export interface GeneticAlgorithmConfig {
+	mutation_rate: number;
+	crossover_rate: number;
+	selection_method: "Tournament" | "RankBased" | "Roulette";
+	tournament_size?: number;
+}
+
+export interface ArchiveConfig {
+	enabled: boolean;
+	max_size: number;
+	diversity_threshold: number;
+}
+
+export interface EvolutionProgress {
+	generation: number;
+	best_fitness: number;
+	mean_fitness: number;
+	phase: "Initializing" | "Evaluating" | "Selecting" | "Complete";
+	evaluations: number;
+	time_elapsed_secs: number;
+	best_candidate?: CandidateSnapshot;
+	top_candidates?: CandidateSnapshot[];
+}
+
+export interface CandidateSnapshot {
+	id: number;
+	fitness: number;
+	generation: number;
+}
+
+export interface EvolutionResult {
+	best_fitness: number;
+	generations: number;
+	total_evaluations: number;
+	time_elapsed_secs: number;
+	stop_reason: "TargetReached" | "MaxGenerations" | "Stagnation" | "Cancelled";
+}
+
+export interface BestCandidateState {
+	width: number;
+	height: number;
+	data: Float32Array;
 }
