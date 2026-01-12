@@ -2,11 +2,13 @@
 //!
 //! Provides thin wrappers around `CpuPropagator` and evolution engine for browser environments.
 
+use std::cell::RefCell;
+
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use crate::{
-    compute::{CpuPropagator, SimulationState, SimulationStats},
+    compute::{CpuPropagator, CpuPropagator3D, SimulationState, SimulationStats},
     schema::{Seed, SimulationConfig},
 };
 
@@ -155,10 +157,12 @@ struct StateSnapshot<'a> {
 use crate::compute::gpu::GpuPropagator;
 
 /// WebAssembly wrapper for GPU-accelerated Flow Lenia propagator.
+///
+/// Uses RefCell for interior mutability to avoid wasm-bindgen async borrowing issues.
 #[wasm_bindgen]
 pub struct WasmGpuPropagator {
-    propagator: GpuPropagator,
-    state: SimulationState,
+    propagator: RefCell<GpuPropagator>,
+    state: RefCell<SimulationState>,
 }
 
 #[wasm_bindgen]
@@ -180,34 +184,77 @@ impl WasmGpuPropagator {
 
         let state = SimulationState::from_seed(&seed, &config);
 
-        Ok(WasmGpuPropagator { propagator, state })
+        Ok(WasmGpuPropagator {
+            propagator: RefCell::new(propagator),
+            state: RefCell::new(state),
+        })
     }
 
     /// Perform one simulation step (async to allow GPU readback).
+    /// Returns false if already processing (skip frame).
     #[wasm_bindgen]
-    pub async fn step(&mut self) {
-        self.propagator.step(&mut self.state);
+    pub async fn step(&self) -> bool {
+        // Try to acquire borrows - skip if already in use
+        let Ok(mut propagator) = self.propagator.try_borrow_mut() else {
+            return false;
+        };
+        let Ok(mut state) = self.state.try_borrow_mut() else {
+            return false;
+        };
+        propagator.step(&mut state);
+        drop(propagator);
+        drop(state);
+
         // Async readback to sync GPU state to CPU
-        self.propagator.read_state_async(&mut self.state).await;
+        let Ok(propagator) = self.propagator.try_borrow() else {
+            return false;
+        };
+        let Ok(mut state) = self.state.try_borrow_mut() else {
+            return false;
+        };
+        propagator.read_state_async(&mut state).await;
+        true
     }
 
     /// Run multiple simulation steps (async to allow GPU readback).
+    /// Returns false if already processing (skip frame).
     #[wasm_bindgen]
-    pub async fn run(&mut self, steps: u64) {
-        self.propagator.run(&mut self.state, steps);
+    pub async fn run(&self, steps: u64) -> bool {
+        // Try to acquire borrows - skip if already in use
+        let Ok(mut propagator) = self.propagator.try_borrow_mut() else {
+            return false;
+        };
+        let Ok(mut state) = self.state.try_borrow_mut() else {
+            return false;
+        };
+        propagator.run(&mut state, steps);
+        drop(propagator);
+        drop(state);
+
         // Async readback to sync GPU state to CPU after all steps
-        self.propagator.read_state_async(&mut self.state).await;
+        let Ok(propagator) = self.propagator.try_borrow() else {
+            return false;
+        };
+        let Ok(mut state) = self.state.try_borrow_mut() else {
+            return false;
+        };
+        propagator.read_state_async(&mut state).await;
+        true
     }
 
     /// Get current simulation state as JSON.
     #[wasm_bindgen(js_name = getState)]
     pub fn get_state(&self) -> Result<JsValue, JsValue> {
+        let state = self
+            .state
+            .try_borrow()
+            .map_err(|_| JsValue::from_str("State currently in use"))?;
         let snapshot = StateSnapshot {
-            channels: &self.state.channels,
-            width: self.state.width,
-            height: self.state.height,
-            time: self.state.time,
-            step: self.state.step,
+            channels: &state.channels,
+            width: state.width,
+            height: state.height,
+            time: state.time,
+            step: state.step,
         };
 
         serde_wasm_bindgen::to_value(&snapshot)
@@ -217,21 +264,135 @@ impl WasmGpuPropagator {
     /// Get simulation statistics as JSON.
     #[wasm_bindgen(js_name = getStats)]
     pub fn get_stats(&self) -> Result<JsValue, JsValue> {
-        let stats = SimulationStats::from_state(&self.state);
+        let state = self
+            .state
+            .try_borrow()
+            .map_err(|_| JsValue::from_str("State currently in use"))?;
+        let stats = SimulationStats::from_state(&state);
         serde_wasm_bindgen::to_value(&stats)
             .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
     }
 
     /// Reset simulation with new seed.
     #[wasm_bindgen]
-    pub fn reset(&mut self, seed_json: &str) -> Result<(), JsValue> {
+    pub fn reset(&self, seed_json: &str) -> Result<(), JsValue> {
         let seed: Seed = serde_json::from_str(seed_json)
             .map_err(|e| JsValue::from_str(&format!("Invalid seed JSON: {e}")))?;
 
-        let config = self.propagator.config();
-        self.state = SimulationState::from_seed(&seed, config);
+        let propagator = self
+            .propagator
+            .try_borrow()
+            .map_err(|_| JsValue::from_str("Propagator currently in use"))?;
+        let config = propagator.config();
+        let mut state = self
+            .state
+            .try_borrow_mut()
+            .map_err(|_| JsValue::from_str("State currently in use"))?;
+        *state = SimulationState::from_seed(&seed, config);
 
         Ok(())
+    }
+
+    /// Get total mass across all channels.
+    #[wasm_bindgen(js_name = totalMass)]
+    pub fn total_mass(&self) -> f32 {
+        self.state
+            .try_borrow()
+            .map(|s| s.total_mass())
+            .unwrap_or(0.0)
+    }
+
+    /// Get current simulation time.
+    #[wasm_bindgen(js_name = getTime)]
+    pub fn get_time(&self) -> f32 {
+        self.state.try_borrow().map(|s| s.time).unwrap_or(0.0)
+    }
+
+    /// Get current step count.
+    #[wasm_bindgen(js_name = getStep)]
+    pub fn get_step(&self) -> u64 {
+        self.state.try_borrow().map(|s| s.step).unwrap_or(0)
+    }
+
+    /// Get grid width.
+    #[wasm_bindgen(js_name = getWidth)]
+    pub fn get_width(&self) -> usize {
+        self.state.try_borrow().map(|s| s.width).unwrap_or(0)
+    }
+
+    /// Get grid height.
+    #[wasm_bindgen(js_name = getHeight)]
+    pub fn get_height(&self) -> usize {
+        self.state.try_borrow().map(|s| s.height).unwrap_or(0)
+    }
+}
+
+// ============================================================================
+// 3D CPU Propagator
+// ============================================================================
+
+/// WebAssembly wrapper for 3D Flow Lenia CPU propagator.
+#[wasm_bindgen]
+pub struct WasmPropagator3D {
+    propagator: CpuPropagator3D,
+    state: SimulationState,
+    width: usize,
+    height: usize,
+    depth: usize,
+}
+
+#[wasm_bindgen]
+impl WasmPropagator3D {
+    /// Create new 3D propagator from JSON configuration.
+    #[wasm_bindgen(constructor)]
+    pub fn new(config_json: &str, seed_json: &str) -> Result<WasmPropagator3D, JsValue> {
+        let config: SimulationConfig = serde_json::from_str(config_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid config JSON: {e}")))?;
+
+        if !config.is_3d() {
+            return Err(JsValue::from_str("Configuration must be 3D (depth > 1)"));
+        }
+
+        let seed: Seed = serde_json::from_str(seed_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid seed JSON: {e}")))?;
+
+        let width = config.width;
+        let height = config.height;
+        let depth = config.depth;
+
+        let propagator = CpuPropagator3D::new(config.clone());
+        let state = SimulationState::from_seed(&seed, &config);
+
+        Ok(WasmPropagator3D {
+            propagator,
+            state,
+            width,
+            height,
+            depth,
+        })
+    }
+
+    /// Perform one simulation step.
+    #[wasm_bindgen]
+    pub fn step(&mut self) {
+        self.propagator.step(&mut self.state);
+    }
+
+    /// Run multiple simulation steps.
+    #[wasm_bindgen]
+    pub fn run(&mut self, steps: u64) {
+        self.propagator.run(&mut self.state, steps);
+    }
+
+    /// Get flat channel data for a specific channel.
+    /// Returns flattened array in z-major order: data[z * height * width + y * width + x]
+    #[wasm_bindgen(js_name = getChannelData)]
+    pub fn get_channel_data(&self, channel: usize) -> Vec<f32> {
+        if channel < self.state.channels.len() {
+            self.state.channels[channel].clone()
+        } else {
+            vec![]
+        }
     }
 
     /// Get total mass across all channels.
@@ -255,13 +416,192 @@ impl WasmGpuPropagator {
     /// Get grid width.
     #[wasm_bindgen(js_name = getWidth)]
     pub fn get_width(&self) -> usize {
-        self.state.width
+        self.width
     }
 
     /// Get grid height.
     #[wasm_bindgen(js_name = getHeight)]
     pub fn get_height(&self) -> usize {
-        self.state.height
+        self.height
+    }
+
+    /// Get grid depth.
+    #[wasm_bindgen(js_name = getDepth)]
+    pub fn get_depth(&self) -> usize {
+        self.depth
+    }
+
+    /// Get number of channels.
+    #[wasm_bindgen(js_name = getChannels)]
+    pub fn get_channels(&self) -> usize {
+        self.state.channels.len()
+    }
+}
+
+// ============================================================================
+// 3D GPU Propagator
+// ============================================================================
+
+use crate::compute::gpu::GpuPropagator3D;
+
+/// WebAssembly wrapper for 3D GPU-accelerated Flow Lenia propagator.
+///
+/// Uses RefCell for interior mutability to avoid wasm-bindgen async borrowing issues.
+#[wasm_bindgen]
+pub struct WasmGpuPropagator3D {
+    propagator: RefCell<GpuPropagator3D>,
+    state: RefCell<SimulationState>,
+    width: usize,
+    height: usize,
+    depth: usize,
+}
+
+#[wasm_bindgen]
+impl WasmGpuPropagator3D {
+    /// Create new 3D GPU propagator from JSON configuration.
+    #[wasm_bindgen(constructor)]
+    pub async fn new(config_json: &str, seed_json: &str) -> Result<WasmGpuPropagator3D, JsValue> {
+        let config: SimulationConfig = serde_json::from_str(config_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid config JSON: {e}")))?;
+
+        if !config.is_3d() {
+            return Err(JsValue::from_str("Configuration must be 3D (depth > 1)"));
+        }
+
+        let seed: Seed = serde_json::from_str(seed_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid seed JSON: {e}")))?;
+
+        let width = config.width;
+        let height = config.height;
+        let depth = config.depth;
+
+        let propagator = GpuPropagator3D::new(config.clone())
+            .await
+            .map_err(|e| JsValue::from_str(&format!("GPU initialization failed: {e}")))?;
+
+        let state = SimulationState::from_seed(&seed, &config);
+
+        Ok(WasmGpuPropagator3D {
+            propagator: RefCell::new(propagator),
+            state: RefCell::new(state),
+            width,
+            height,
+            depth,
+        })
+    }
+
+    /// Perform one simulation step.
+    /// Returns false if already processing (skip frame).
+    #[wasm_bindgen]
+    pub async fn step(&self) -> bool {
+        // Try to acquire borrows - skip if already in use
+        let Ok(mut propagator) = self.propagator.try_borrow_mut() else {
+            return false;
+        };
+        let Ok(mut state) = self.state.try_borrow_mut() else {
+            return false;
+        };
+        propagator.step(&mut state);
+        drop(propagator);
+        drop(state);
+
+        // Async readback
+        let Ok(propagator) = self.propagator.try_borrow() else {
+            return false;
+        };
+        let Ok(mut state) = self.state.try_borrow_mut() else {
+            return false;
+        };
+        propagator.read_state_async(&mut state).await;
+        true
+    }
+
+    /// Run multiple simulation steps.
+    /// Returns false if already processing (skip frame).
+    #[wasm_bindgen]
+    pub async fn run(&self, steps: u64) -> bool {
+        // Try to acquire borrows - skip if already in use
+        let Ok(mut propagator) = self.propagator.try_borrow_mut() else {
+            return false;
+        };
+        let Ok(mut state) = self.state.try_borrow_mut() else {
+            return false;
+        };
+        propagator.run(&mut state, steps);
+        drop(propagator);
+        drop(state);
+
+        // Async readback
+        let Ok(propagator) = self.propagator.try_borrow() else {
+            return false;
+        };
+        let Ok(mut state) = self.state.try_borrow_mut() else {
+            return false;
+        };
+        propagator.read_state_async(&mut state).await;
+        true
+    }
+
+    /// Get flat channel data for a specific channel.
+    /// Returns empty vec if state is currently borrowed.
+    #[wasm_bindgen(js_name = getChannelData)]
+    pub fn get_channel_data(&self, channel: usize) -> Vec<f32> {
+        let Ok(state) = self.state.try_borrow() else {
+            return vec![];
+        };
+        if channel < state.channels.len() {
+            state.channels[channel].clone()
+        } else {
+            vec![]
+        }
+    }
+
+    /// Get total mass across all channels.
+    #[wasm_bindgen(js_name = totalMass)]
+    pub fn total_mass(&self) -> f32 {
+        self.state
+            .try_borrow()
+            .map(|s| s.total_mass())
+            .unwrap_or(0.0)
+    }
+
+    /// Get current simulation time.
+    #[wasm_bindgen(js_name = getTime)]
+    pub fn get_time(&self) -> f32 {
+        self.state.try_borrow().map(|s| s.time).unwrap_or(0.0)
+    }
+
+    /// Get current step count.
+    #[wasm_bindgen(js_name = getStep)]
+    pub fn get_step(&self) -> u64 {
+        self.state.try_borrow().map(|s| s.step).unwrap_or(0)
+    }
+
+    /// Get grid width.
+    #[wasm_bindgen(js_name = getWidth)]
+    pub fn get_width(&self) -> usize {
+        self.width
+    }
+
+    /// Get grid height.
+    #[wasm_bindgen(js_name = getHeight)]
+    pub fn get_height(&self) -> usize {
+        self.height
+    }
+
+    /// Get grid depth.
+    #[wasm_bindgen(js_name = getDepth)]
+    pub fn get_depth(&self) -> usize {
+        self.depth
+    }
+
+    /// Get number of channels.
+    #[wasm_bindgen(js_name = getChannels)]
+    pub fn get_channels(&self) -> usize {
+        self.state
+            .try_borrow()
+            .map(|s| s.channels.len())
+            .unwrap_or(0)
     }
 }
 

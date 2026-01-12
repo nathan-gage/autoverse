@@ -25,3 +25,6 @@ wasm-pack.log
 # Profiling artifacts
 dhat-heap.json
 profile.json
+
+# Animation files (generated)
+*.flwa

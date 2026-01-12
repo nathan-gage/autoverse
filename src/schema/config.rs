@@ -4,13 +4,21 @@ use serde::{Deserialize, Serialize};
 
 use super::EmbeddingConfig;
 
+/// Default depth for backward compatibility (2D mode).
+fn default_depth() -> usize {
+    1
+}
+
 /// Top-level simulation configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationConfig {
-    /// Grid width in cells.
+    /// Grid width in cells (X dimension).
     pub width: usize,
-    /// Grid height in cells.
+    /// Grid height in cells (Y dimension).
     pub height: usize,
+    /// Grid depth in cells (Z dimension). Use 1 for 2D simulations.
+    #[serde(default = "default_depth")]
+    pub depth: usize,
     /// Number of channels (species).
     pub channels: usize,
     /// Time step size (typically 0.1-0.5).
@@ -31,6 +39,7 @@ impl Default for SimulationConfig {
         Self {
             width: 256,
             height: 256,
+            depth: 1,
             channels: 1,
             dt: 0.05,
             kernel_radius: 13,
@@ -111,9 +120,21 @@ impl Default for FlowConfig {
 }
 
 impl SimulationConfig {
+    /// Check if this is a 3D simulation (depth > 1).
+    #[inline]
+    pub fn is_3d(&self) -> bool {
+        self.depth > 1
+    }
+
+    /// Get total grid size (width * height * depth).
+    #[inline]
+    pub fn grid_size(&self) -> usize {
+        self.width * self.height * self.depth
+    }
+
     /// Validate configuration parameters.
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.width == 0 || self.height == 0 {
+        if self.width == 0 || self.height == 0 || self.depth == 0 {
             return Err(ConfigError::InvalidDimensions);
         }
         if self.channels == 0 {
@@ -146,7 +167,7 @@ impl SimulationConfig {
 /// Configuration validation errors.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("Grid dimensions must be non-zero")]
+    #[error("Grid dimensions (width, height, depth) must be non-zero")]
     InvalidDimensions,
     #[error("Channel count must be non-zero")]
     InvalidChannels,

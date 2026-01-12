@@ -1,72 +1,80 @@
-//! GPU Propagator - GPU-accelerated Flow Lenia simulation.
+//! 3D GPU Propagator - GPU-accelerated 3D Flow Lenia simulation.
 
 use super::GpuError;
-use crate::compute::{Kernel, SimulationState};
+use crate::compute::{Kernel3D, SimulationState};
 use crate::schema::SimulationConfig;
 
-// Embed shader sources at compile time
-const CONVOLUTION_GROWTH_SHADER: &str = include_str!("shaders/convolution_growth.wgsl");
-const GRADIENT_SHADER: &str = include_str!("shaders/gradient.wgsl");
-const FLOW_SHADER: &str = include_str!("shaders/flow.wgsl");
-const ADVECTION_SHADER: &str = include_str!("shaders/advection.wgsl");
-const MASS_SUM_SHADER: &str = include_str!("shaders/mass_sum.wgsl");
+// Embed 3D shader sources at compile time
+const CONVOLUTION_GROWTH_3D_SHADER: &str = include_str!("shaders/convolution_growth_3d.wgsl");
+const GRADIENT_3D_SHADER: &str = include_str!("shaders/gradient_3d.wgsl");
+const FLOW_3D_SHADER: &str = include_str!("shaders/flow_3d.wgsl");
+const ADVECTION_3D_SHADER: &str = include_str!("shaders/advection_3d.wgsl");
+const MASS_SUM_3D_SHADER: &str = include_str!("shaders/mass_sum_3d.wgsl");
 
-/// Uniform buffer struct for convolution shader.
+/// Uniform buffer struct for 3D convolution shader.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct ConvParams {
+struct ConvParams3D {
     width: u32,
     height: u32,
+    depth: u32,
     kernel_radius: u32,
-    _pad: u32,
     mu: f32,
     sigma: f32,
     weight: f32,
-    _pad2: f32,
+    _pad: f32,
 }
 
-/// Uniform buffer struct for gradient shader.
+/// Uniform buffer struct for 3D gradient shader.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct GradientParams {
+struct GradientParams3D {
     width: u32,
     height: u32,
-    _pad0: u32,
-    _pad1: u32,
-}
-
-/// Uniform buffer struct for flow shader.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct FlowParams {
-    width: u32,
-    height: u32,
-    beta_a: f32,
-    n: f32,
-}
-
-/// Uniform buffer struct for advection shader.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct AdvectParams {
-    width: u32,
-    height: u32,
-    dt: f32,
-    distribution_size: f32,
-}
-
-/// Uniform buffer struct for mass sum shader.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct MassSumParams {
-    width: u32,
-    height: u32,
-    num_channels: u32,
+    depth: u32,
     _pad: u32,
 }
 
-/// GPU-based Flow Lenia propagator using WebGPU compute shaders.
-pub struct GpuPropagator {
+/// Uniform buffer struct for 3D flow shader.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct FlowParams3D {
+    width: u32,
+    height: u32,
+    depth: u32,
+    _pad: u32,
+    beta_a: f32,
+    n: f32,
+    _pad2: f32,
+    _pad3: f32,
+}
+
+/// Uniform buffer struct for 3D advection shader.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct AdvectParams3D {
+    width: u32,
+    height: u32,
+    depth: u32,
+    _pad: u32,
+    dt: f32,
+    distribution_size: f32,
+    _pad2: f32,
+    _pad3: f32,
+}
+
+/// Uniform buffer struct for 3D mass sum shader.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct MassSumParams3D {
+    width: u32,
+    height: u32,
+    depth: u32,
+    num_channels: u32,
+}
+
+/// GPU-based 3D Flow Lenia propagator using WebGPU compute shaders.
+pub struct GpuPropagator3D {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: SimulationConfig,
@@ -85,10 +93,13 @@ pub struct GpuPropagator {
     mass_sum_buffer: wgpu::Buffer,
     grad_u_x_buffer: wgpu::Buffer,
     grad_u_y_buffer: wgpu::Buffer,
+    grad_u_z_buffer: wgpu::Buffer,
     grad_a_x_buffer: wgpu::Buffer,
     grad_a_y_buffer: wgpu::Buffer,
+    grad_a_z_buffer: wgpu::Buffer,
     flow_x_buffer: wgpu::Buffer,
     flow_y_buffer: wgpu::Buffer,
+    flow_z_buffer: wgpu::Buffer,
     staging_buffer: wgpu::Buffer,
 
     // Kernel buffers
@@ -102,10 +113,11 @@ pub struct GpuPropagator {
     mass_sum_bind_group_layout: wgpu::BindGroupLayout,
 }
 
-impl GpuPropagator {
-    /// Create a new GPU propagator.
+impl GpuPropagator3D {
+    /// Create a new 3D GPU propagator.
     pub async fn new(config: SimulationConfig) -> Result<Self, GpuError> {
         config.validate().expect("Invalid configuration");
+        assert!(config.is_3d(), "GpuPropagator3D requires depth > 1");
 
         // 1. Create wgpu instance
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -126,7 +138,7 @@ impl GpuPropagator {
         // 3. Request device and queue
         let (device, queue): (wgpu::Device, wgpu::Queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
-                label: Some("Flow Lenia GPU"),
+                label: Some("Flow Lenia 3D GPU"),
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 ..Default::default()
@@ -135,59 +147,59 @@ impl GpuPropagator {
 
         // 4. Create shader modules
         let conv_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Convolution Shader"),
-            source: wgpu::ShaderSource::Wgsl(CONVOLUTION_GROWTH_SHADER.into()),
+            label: Some("3D Convolution Shader"),
+            source: wgpu::ShaderSource::Wgsl(CONVOLUTION_GROWTH_3D_SHADER.into()),
         });
         let gradient_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Gradient Shader"),
-            source: wgpu::ShaderSource::Wgsl(GRADIENT_SHADER.into()),
+            label: Some("3D Gradient Shader"),
+            source: wgpu::ShaderSource::Wgsl(GRADIENT_3D_SHADER.into()),
         });
         let flow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Flow Shader"),
-            source: wgpu::ShaderSource::Wgsl(FLOW_SHADER.into()),
+            label: Some("3D Flow Shader"),
+            source: wgpu::ShaderSource::Wgsl(FLOW_3D_SHADER.into()),
         });
         let advection_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Advection Shader"),
-            source: wgpu::ShaderSource::Wgsl(ADVECTION_SHADER.into()),
+            label: Some("3D Advection Shader"),
+            source: wgpu::ShaderSource::Wgsl(ADVECTION_3D_SHADER.into()),
         });
         let mass_sum_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Mass Sum Shader"),
-            source: wgpu::ShaderSource::Wgsl(MASS_SUM_SHADER.into()),
+            label: Some("3D Mass Sum Shader"),
+            source: wgpu::ShaderSource::Wgsl(MASS_SUM_3D_SHADER.into()),
         });
 
         // 5. Create bind group layouts
-        let conv_bind_group_layout = create_conv_bind_group_layout(&device);
-        let gradient_bind_group_layout = create_gradient_bind_group_layout(&device);
-        let flow_bind_group_layout = create_flow_bind_group_layout(&device);
-        let advection_bind_group_layout = create_advection_bind_group_layout(&device);
-        let mass_sum_bind_group_layout = create_mass_sum_bind_group_layout(&device);
+        let conv_bind_group_layout = create_conv_bind_group_layout_3d(&device);
+        let gradient_bind_group_layout = create_gradient_bind_group_layout_3d(&device);
+        let flow_bind_group_layout = create_flow_bind_group_layout_3d(&device);
+        let advection_bind_group_layout = create_advection_bind_group_layout_3d(&device);
+        let mass_sum_bind_group_layout = create_mass_sum_bind_group_layout_3d(&device);
 
         // 6. Create pipeline layouts
         let conv_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Convolution Pipeline Layout"),
+            label: Some("3D Convolution Pipeline Layout"),
             bind_group_layouts: &[&conv_bind_group_layout],
             ..Default::default()
         });
         let gradient_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Gradient Pipeline Layout"),
+                label: Some("3D Gradient Pipeline Layout"),
                 bind_group_layouts: &[&gradient_bind_group_layout],
                 ..Default::default()
             });
         let flow_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Flow Pipeline Layout"),
+            label: Some("3D Flow Pipeline Layout"),
             bind_group_layouts: &[&flow_bind_group_layout],
             ..Default::default()
         });
         let advection_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Advection Pipeline Layout"),
+                label: Some("3D Advection Pipeline Layout"),
                 bind_group_layouts: &[&advection_bind_group_layout],
                 ..Default::default()
             });
         let mass_sum_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Mass Sum Pipeline Layout"),
+                label: Some("3D Mass Sum Pipeline Layout"),
                 bind_group_layouts: &[&mass_sum_bind_group_layout],
                 ..Default::default()
             });
@@ -195,7 +207,7 @@ impl GpuPropagator {
         // 7. Create compute pipelines
         let convolution_pipeline =
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Convolution Pipeline"),
+                label: Some("3D Convolution Pipeline"),
                 layout: Some(&conv_pipeline_layout),
                 module: &conv_shader,
                 entry_point: Some("main"),
@@ -203,7 +215,7 @@ impl GpuPropagator {
                 cache: None,
             });
         let gradient_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Gradient Pipeline"),
+            label: Some("3D Gradient Pipeline"),
             layout: Some(&gradient_pipeline_layout),
             module: &gradient_shader,
             entry_point: Some("main"),
@@ -211,7 +223,7 @@ impl GpuPropagator {
             cache: None,
         });
         let flow_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Flow Pipeline"),
+            label: Some("3D Flow Pipeline"),
             layout: Some(&flow_pipeline_layout),
             module: &flow_shader,
             entry_point: Some("main"),
@@ -219,7 +231,7 @@ impl GpuPropagator {
             cache: None,
         });
         let advection_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Advection Pipeline"),
+            label: Some("3D Advection Pipeline"),
             layout: Some(&advection_pipeline_layout),
             module: &advection_shader,
             entry_point: Some("main"),
@@ -227,7 +239,7 @@ impl GpuPropagator {
             cache: None,
         });
         let mass_sum_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Mass Sum Pipeline"),
+            label: Some("3D Mass Sum Pipeline"),
             layout: Some(&mass_sum_pipeline_layout),
             module: &mass_sum_shader,
             entry_point: Some("main"),
@@ -235,14 +247,14 @@ impl GpuPropagator {
             cache: None,
         });
 
-        // 8. Calculate buffer sizes
-        let grid_size = config.width * config.height;
+        // 8. Calculate buffer sizes (3D)
+        let grid_size = config.width * config.height * config.depth;
         let channel_buffer_size = (grid_size * std::mem::size_of::<f32>()) as u64;
         let state_buffer_size = channel_buffer_size * config.channels as u64;
 
         // 9. Create GPU buffers
         let state_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("State Buffer"),
+            label: Some("3D State Buffer"),
             size: state_buffer_size,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
@@ -250,7 +262,7 @@ impl GpuPropagator {
             mapped_at_creation: false,
         });
         let next_state_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Next State Buffer"),
+            label: Some("3D Next State Buffer"),
             size: state_buffer_size,
             usage: wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
@@ -258,71 +270,89 @@ impl GpuPropagator {
             mapped_at_creation: false,
         });
         let affinity_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Affinity Buffer"),
+            label: Some("3D Affinity Buffer"),
             size: state_buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let mass_sum_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Mass Sum Buffer"),
+            label: Some("3D Mass Sum Buffer"),
             size: channel_buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let grad_u_x_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Grad U X Buffer"),
+            label: Some("3D Grad U X Buffer"),
             size: channel_buffer_size,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
         let grad_u_y_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Grad U Y Buffer"),
+            label: Some("3D Grad U Y Buffer"),
+            size: channel_buffer_size,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let grad_u_z_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("3D Grad U Z Buffer"),
             size: channel_buffer_size,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
         let grad_a_x_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Grad A X Buffer"),
+            label: Some("3D Grad A X Buffer"),
             size: channel_buffer_size,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
         let grad_a_y_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Grad A Y Buffer"),
+            label: Some("3D Grad A Y Buffer"),
+            size: channel_buffer_size,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let grad_a_z_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("3D Grad A Z Buffer"),
             size: channel_buffer_size,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
         let flow_x_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Flow X Buffer"),
+            label: Some("3D Flow X Buffer"),
             size: channel_buffer_size,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
         let flow_y_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Flow Y Buffer"),
+            label: Some("3D Flow Y Buffer"),
+            size: channel_buffer_size,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let flow_z_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("3D Flow Z Buffer"),
             size: channel_buffer_size,
             usage: wgpu::BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
         let staging_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Staging Buffer"),
+            label: Some("3D Staging Buffer"),
             size: state_buffer_size,
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        // 10. Create kernel buffers
+        // 10. Create 3D kernel buffers
         let kernel_buffers: Vec<wgpu::Buffer> = config
             .kernels
             .iter()
             .map(|kc| {
-                let kernel = Kernel::from_config(kc, config.kernel_radius);
+                let kernel = Kernel3D::from_config(kc, config.kernel_radius);
                 let kernel_data = &kernel.data;
                 let kernel_size = (kernel_data.len() * std::mem::size_of::<f32>()) as u64;
 
                 let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Kernel Buffer"),
+                    label: Some("3D Kernel Buffer"),
                     size: kernel_size,
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
@@ -348,10 +378,13 @@ impl GpuPropagator {
             mass_sum_buffer,
             grad_u_x_buffer,
             grad_u_y_buffer,
+            grad_u_z_buffer,
             grad_a_x_buffer,
             grad_a_y_buffer,
+            grad_a_z_buffer,
             flow_x_buffer,
             flow_y_buffer,
+            flow_z_buffer,
             staging_buffer,
             kernel_buffers,
             conv_bind_group_layout,
@@ -366,7 +399,8 @@ impl GpuPropagator {
     pub fn step(&mut self, state: &mut SimulationState) {
         let width = self.config.width as u32;
         let height = self.config.height as u32;
-        let grid_size = (width * height) as usize;
+        let depth = self.config.depth as u32;
+        let grid_size = (width * height * depth) as usize;
 
         // Upload current state to GPU
         let state_data: Vec<f32> = state.channels.iter().flatten().copied().collect();
@@ -381,32 +415,33 @@ impl GpuPropagator {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Step Encoder"),
+                label: Some("3D Step Encoder"),
             });
 
-        let workgroups_x = width.div_ceil(16);
-        let workgroups_y = height.div_ceil(16);
+        // 3D workgroup dispatch (8x8x4 workgroup size)
+        let workgroups_x = width.div_ceil(8);
+        let workgroups_y = height.div_ceil(8);
+        let workgroups_z = depth.div_ceil(4);
 
         // Stage 1: Convolution + Growth for each kernel
         for (kernel_idx, kernel_config) in self.config.kernels.iter().enumerate() {
-            // Compute actual kernel radius (same formula as kernel.rs)
             let actual_radius =
                 (kernel_config.radius * self.config.kernel_radius as f32).round() as u32;
 
-            let params = ConvParams {
+            let params = ConvParams3D {
                 width,
                 height,
+                depth,
                 kernel_radius: actual_radius,
-                _pad: 0,
                 mu: kernel_config.mu,
                 sigma: kernel_config.sigma,
                 weight: kernel_config.weight,
-                _pad2: 0.0,
+                _pad: 0.0,
             };
 
             let params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Conv Params"),
-                size: std::mem::size_of::<ConvParams>() as u64,
+                label: Some("3D Conv Params"),
+                size: std::mem::size_of::<ConvParams3D>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -420,7 +455,7 @@ impl GpuPropagator {
             let channel_size = (grid_size * std::mem::size_of::<f32>()) as u64;
 
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Conv Bind Group"),
+                label: Some("3D Conv Bind Group"),
                 layout: &self.conv_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -452,27 +487,27 @@ impl GpuPropagator {
 
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("Convolution Pass"),
+                    label: Some("3D Convolution Pass"),
                     timestamp_writes: None,
                 });
                 pass.set_pipeline(&self.convolution_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
-                pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+                pass.dispatch_workgroups(workgroups_x, workgroups_y, workgroups_z);
             }
         }
 
         // Stage 2: Compute mass sum
         {
-            let params = MassSumParams {
+            let params = MassSumParams3D {
                 width,
                 height,
+                depth,
                 num_channels: self.config.channels as u32,
-                _pad: 0,
             };
 
             let params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Mass Sum Params"),
-                size: std::mem::size_of::<MassSumParams>() as u64,
+                label: Some("3D Mass Sum Params"),
+                size: std::mem::size_of::<MassSumParams3D>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -480,7 +515,7 @@ impl GpuPropagator {
                 .write_buffer(&params_buffer, 0, bytemuck::bytes_of(&params));
 
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Mass Sum Bind Group"),
+                label: Some("3D Mass Sum Bind Group"),
                 layout: &self.mass_sum_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -500,27 +535,27 @@ impl GpuPropagator {
 
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("Mass Sum Pass"),
+                    label: Some("3D Mass Sum Pass"),
                     timestamp_writes: None,
                 });
                 pass.set_pipeline(&self.mass_sum_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
-                pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+                pass.dispatch_workgroups(workgroups_x, workgroups_y, workgroups_z);
             }
         }
 
-        // Stage 3: Compute mass gradient
+        // Stage 3: Compute mass gradient (3D)
         {
-            let params = GradientParams {
+            let params = GradientParams3D {
                 width,
                 height,
-                _pad0: 0,
-                _pad1: 0,
+                depth,
+                _pad: 0,
             };
 
             let params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Gradient Params"),
-                size: std::mem::size_of::<GradientParams>() as u64,
+                label: Some("3D Gradient Params"),
+                size: std::mem::size_of::<GradientParams3D>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -528,7 +563,7 @@ impl GpuPropagator {
                 .write_buffer(&params_buffer, 0, bytemuck::bytes_of(&params));
 
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Gradient Bind Group (Mass)"),
+                label: Some("3D Gradient Bind Group (Mass)"),
                 layout: &self.gradient_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -547,17 +582,21 @@ impl GpuPropagator {
                         binding: 3,
                         resource: self.grad_a_y_buffer.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: self.grad_a_z_buffer.as_entire_binding(),
+                    },
                 ],
             });
 
             {
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("Gradient Pass (Mass)"),
+                    label: Some("3D Gradient Pass (Mass)"),
                     timestamp_writes: None,
                 });
                 pass.set_pipeline(&self.gradient_pipeline);
                 pass.set_bind_group(0, &bind_group, &[]);
-                pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+                pass.dispatch_workgroups(workgroups_x, workgroups_y, workgroups_z);
             }
         }
 
@@ -566,18 +605,18 @@ impl GpuPropagator {
         for c in 0..self.config.channels {
             let channel_offset = (c * grid_size * std::mem::size_of::<f32>()) as u64;
 
-            // Compute affinity gradient
+            // Compute affinity gradient (3D)
             {
-                let params = GradientParams {
+                let params = GradientParams3D {
                     width,
                     height,
-                    _pad0: 0,
-                    _pad1: 0,
+                    depth,
+                    _pad: 0,
                 };
 
                 let params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Gradient Params"),
-                    size: std::mem::size_of::<GradientParams>() as u64,
+                    label: Some("3D Gradient Params"),
+                    size: std::mem::size_of::<GradientParams3D>() as u64,
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
@@ -585,7 +624,7 @@ impl GpuPropagator {
                     .write_buffer(&params_buffer, 0, bytemuck::bytes_of(&params));
 
                 let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Gradient Bind Group (Affinity)"),
+                    label: Some("3D Gradient Bind Group (Affinity)"),
                     layout: &self.gradient_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
@@ -608,40 +647,50 @@ impl GpuPropagator {
                             binding: 3,
                             resource: self.grad_u_y_buffer.as_entire_binding(),
                         },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: self.grad_u_z_buffer.as_entire_binding(),
+                        },
                     ],
                 });
 
                 {
                     let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                        label: Some("Gradient Pass (Affinity)"),
+                        label: Some("3D Gradient Pass (Affinity)"),
                         timestamp_writes: None,
                     });
                     pass.set_pipeline(&self.gradient_pipeline);
                     pass.set_bind_group(0, &bind_group, &[]);
-                    pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+                    pass.dispatch_workgroups(workgroups_x, workgroups_y, workgroups_z);
                 }
             }
 
-            // Compute flow field
+            // Compute flow field (3D) - run 3 passes, one for each component
+            // to stay within the 8 storage buffer limit per shader stage
+            let params = FlowParams3D {
+                width,
+                height,
+                depth,
+                _pad: 0,
+                beta_a: self.config.flow.beta_a,
+                n: self.config.flow.n,
+                _pad2: 0.0,
+                _pad3: 0.0,
+            };
+
+            let params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("3D Flow Params"),
+                size: std::mem::size_of::<FlowParams3D>() as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.queue
+                .write_buffer(&params_buffer, 0, bytemuck::bytes_of(&params));
+
+            // Flow X pass
             {
-                let params = FlowParams {
-                    width,
-                    height,
-                    beta_a: self.config.flow.beta_a,
-                    n: self.config.flow.n,
-                };
-
-                let params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Flow Params"),
-                    size: std::mem::size_of::<FlowParams>() as u64,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                self.queue
-                    .write_buffer(&params_buffer, 0, bytemuck::bytes_of(&params));
-
                 let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Flow Bind Group"),
+                    label: Some("3D Flow X Bind Group"),
                     layout: &self.flow_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
@@ -654,54 +703,120 @@ impl GpuPropagator {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: self.grad_u_y_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
                             resource: self.grad_a_x_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: self.grad_a_y_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
+                            binding: 3,
                             resource: self.mass_sum_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
-                            binding: 6,
+                            binding: 4,
                             resource: self.flow_x_buffer.as_entire_binding(),
                         },
+                    ],
+                });
+
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("3D Flow X Pass"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.flow_pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups(workgroups_x, workgroups_y, workgroups_z);
+            }
+
+            // Flow Y pass
+            {
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("3D Flow Y Bind Group"),
+                    layout: &self.flow_bind_group_layout,
+                    entries: &[
                         wgpu::BindGroupEntry {
-                            binding: 7,
+                            binding: 0,
+                            resource: params_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: self.grad_u_y_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: self.grad_a_y_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: self.mass_sum_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
                             resource: self.flow_y_buffer.as_entire_binding(),
                         },
                     ],
                 });
 
-                {
-                    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                        label: Some("Flow Pass"),
-                        timestamp_writes: None,
-                    });
-                    pass.set_pipeline(&self.flow_pipeline);
-                    pass.set_bind_group(0, &bind_group, &[]);
-                    pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
-                }
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("3D Flow Y Pass"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.flow_pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups(workgroups_x, workgroups_y, workgroups_z);
             }
 
-            // Advection
+            // Flow Z pass
             {
-                let params = AdvectParams {
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("3D Flow Z Bind Group"),
+                    layout: &self.flow_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: params_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: self.grad_u_z_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: self.grad_a_z_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: self.mass_sum_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: self.flow_z_buffer.as_entire_binding(),
+                        },
+                    ],
+                });
+
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("3D Flow Z Pass"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.flow_pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups(workgroups_x, workgroups_y, workgroups_z);
+            }
+
+            // Advection (3D)
+            {
+                let params = AdvectParams3D {
                     width,
                     height,
+                    depth,
+                    _pad: 0,
                     dt: self.config.dt,
                     distribution_size: self.config.flow.distribution_size,
+                    _pad2: 0.0,
+                    _pad3: 0.0,
                 };
 
                 let params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Advect Params"),
-                    size: std::mem::size_of::<AdvectParams>() as u64,
+                    label: Some("3D Advect Params"),
+                    size: std::mem::size_of::<AdvectParams3D>() as u64,
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
@@ -709,7 +824,7 @@ impl GpuPropagator {
                     .write_buffer(&params_buffer, 0, bytemuck::bytes_of(&params));
 
                 let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Advection Bind Group"),
+                    label: Some("3D Advection Bind Group"),
                     layout: &self.advection_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
@@ -734,6 +849,10 @@ impl GpuPropagator {
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
+                            resource: self.flow_z_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
                             resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                                 buffer: &self.next_state_buffer,
                                 offset: channel_offset,
@@ -745,12 +864,12 @@ impl GpuPropagator {
 
                 {
                     let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                        label: Some("Advection Pass"),
+                        label: Some("3D Advection Pass"),
                         timestamp_writes: None,
                     });
                     pass.set_pipeline(&self.advection_pipeline);
                     pass.set_bind_group(0, &bind_group, &[]);
-                    pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+                    pass.dispatch_workgroups(workgroups_x, workgroups_y, workgroups_z);
                 }
             }
         }
@@ -796,7 +915,7 @@ impl GpuPropagator {
     /// Synchronous readback for native targets.
     #[cfg(not(target_arch = "wasm32"))]
     fn read_state_back(&self, state: &mut SimulationState) {
-        let grid_size = self.config.width * self.config.height;
+        let grid_size = self.config.width * self.config.height * self.config.depth;
 
         let buffer_slice = self.staging_buffer.slice(..);
 
@@ -832,17 +951,14 @@ impl GpuPropagator {
     /// Async readback for WASM - properly awaits buffer mapping.
     #[cfg(target_arch = "wasm32")]
     pub async fn read_state_async(&self, state: &mut SimulationState) {
-        let grid_size = self.config.width * self.config.height;
+        let grid_size = self.config.width * self.config.height * self.config.depth;
         let buffer_slice = self.staging_buffer.slice(..);
 
-        // Create a future that resolves when mapping is complete
         let (sender, receiver) = futures_channel::oneshot::channel();
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
         });
 
-        // Yield to let the browser process the GPU work
-        // The browser automatically polls WebGPU
         receiver
             .await
             .expect("Channel closed")
@@ -863,9 +979,9 @@ impl GpuPropagator {
     }
 }
 
-fn create_conv_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+fn create_conv_bind_group_layout_3d(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Convolution Bind Group Layout"),
+        label: Some("3D Convolution Bind Group Layout"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -911,9 +1027,9 @@ fn create_conv_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout
     })
 }
 
-fn create_gradient_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+fn create_gradient_bind_group_layout_3d(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Gradient Bind Group Layout"),
+        label: Some("3D Gradient Bind Group Layout"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -955,13 +1071,82 @@ fn create_gradient_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLa
                 },
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
     })
 }
 
-fn create_flow_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+fn create_flow_bind_group_layout_3d(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    // Single-component flow shader: params, grad_u, grad_a, mass_sum, flow_output
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Flow Bind Group Layout"),
+        label: Some("3D Flow Bind Group Layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
+fn create_advection_bind_group_layout_3d(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("3D Advection Bind Group Layout"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -1017,26 +1202,6 @@ fn create_flow_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout
                 binding: 5,
                 visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 6,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 7,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
                     min_binding_size: None,
@@ -1047,67 +1212,9 @@ fn create_flow_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout
     })
 }
 
-fn create_advection_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+fn create_mass_sum_bind_group_layout_3d(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Advection Bind Group Layout"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 3,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 4,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-        ],
-    })
-}
-
-fn create_mass_sum_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("Mass Sum Bind Group Layout"),
+        label: Some("3D Mass Sum Bind Group Layout"),
         entries: &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -1146,17 +1253,17 @@ fn create_mass_sum_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compute::CpuPropagator;
-    use crate::schema::{EmbeddingConfig, FlowConfig, KernelConfig, RingConfig, Seed};
+    use crate::compute::CpuPropagator3D;
+    use crate::schema::{FlowConfig, KernelConfig, Pattern, RingConfig, Seed};
 
-    fn test_config() -> SimulationConfig {
+    fn test_config_3d() -> SimulationConfig {
         SimulationConfig {
-            width: 64,
-            height: 64,
-            depth: 1,
+            width: 16,
+            height: 16,
+            depth: 16,
             channels: 1,
-            dt: 0.1,
-            kernel_radius: 7,
+            dt: 0.2,
+            kernel_radius: 4,
             kernels: vec![KernelConfig {
                 radius: 1.0,
                 rings: vec![RingConfig {
@@ -1175,78 +1282,52 @@ mod tests {
                 n: 2.0,
                 distribution_size: 1.0,
             },
-            embedding: EmbeddingConfig::default(),
-        }
-    }
-
-    /// Config with kernel_config.radius < 1.0 to test actual vs max radius handling.
-    /// This is critical: the bug only manifests when radius != 1.0.
-    fn test_config_fractional_radius() -> SimulationConfig {
-        SimulationConfig {
-            width: 64,
-            height: 64,
-            depth: 1,
-            channels: 1,
-            dt: 0.1,
-            kernel_radius: 13, // Max radius
-            kernels: vec![KernelConfig {
-                radius: 0.5, // Actual radius will be 0.5 * 13 = 7 (not 13!)
-                rings: vec![RingConfig {
-                    amplitude: 1.0,
-                    distance: 0.5,
-                    width: 0.15,
-                }],
-                weight: 1.0,
-                mu: 0.15,
-                sigma: 0.015,
-                source_channel: 0,
-                target_channel: 0,
-            }],
-            flow: FlowConfig {
-                beta_a: 1.0,
-                n: 2.0,
-                distribution_size: 1.0,
-            },
-            embedding: EmbeddingConfig::default(),
+            embedding: Default::default(),
         }
     }
 
     #[test]
-    fn test_gpu_propagator_creation() {
-        let config = test_config();
-        let result = pollster::block_on(GpuPropagator::new(config));
+    fn test_gpu_propagator3d_creation() {
+        let config = test_config_3d();
+        let result = pollster::block_on(GpuPropagator3D::new(config));
 
         // Skip test if no GPU available
         if let Err(GpuError::NoAdapter) = &result {
-            eprintln!("Skipping GPU test: no adapter available");
+            eprintln!("Skipping 3D GPU test: no adapter available");
             return;
         }
 
-        assert!(result.is_ok(), "Failed to create GPU propagator");
+        assert!(result.is_ok(), "Failed to create 3D GPU propagator");
     }
 
     #[test]
-    fn test_gpu_mass_conservation() {
-        let config = test_config();
-        let propagator = pollster::block_on(GpuPropagator::new(config.clone()));
+    fn test_gpu_3d_mass_conservation() {
+        let config = test_config_3d();
+        let propagator = pollster::block_on(GpuPropagator3D::new(config.clone()));
 
-        // Skip test if no GPU available
         let mut propagator = match propagator {
             Ok(p) => p,
             Err(GpuError::NoAdapter) => {
-                eprintln!("Skipping GPU test: no adapter available");
+                eprintln!("Skipping 3D GPU test: no adapter available");
                 return;
             }
-            Err(e) => panic!("Failed to create GPU propagator: {:?}", e),
+            Err(e) => panic!("Failed to create 3D GPU propagator: {:?}", e),
         };
 
-        let seed = Seed::default();
+        let seed = Seed {
+            pattern: Pattern::GaussianSphere {
+                center: (0.5, 0.5, 0.5),
+                radius: 0.2,
+                amplitude: 1.0,
+                channel: 0,
+            },
+        };
         let mut state = SimulationState::from_seed(&seed, &config);
 
         let initial_mass = state.total_mass();
 
         // Run a few steps
-        for _ in 0..5 {
+        for _ in 0..3 {
             propagator.step(&mut state);
         }
 
@@ -1254,40 +1335,44 @@ mod tests {
         let relative_error = (final_mass - initial_mass).abs() / initial_mass;
 
         assert!(
-            relative_error < 0.01,
-            "Mass not conserved: {} -> {} ({:.4}% error)",
+            relative_error < 0.02,
+            "3D mass not conserved: {} -> {} ({:.4}% error)",
             initial_mass,
             final_mass,
             relative_error * 100.0
         );
     }
 
-    /// Test that GPU produces approximately the same output as CPU.
-    /// This is THE critical test that would have caught the kernel radius bug.
     #[test]
-    fn test_gpu_cpu_equivalence() {
-        // Use fractional radius config - this exposes bugs where actual vs max radius differs
-        let config = test_config_fractional_radius();
-        let seed = Seed::default();
+    fn test_gpu_cpu_3d_equivalence() {
+        let config = test_config_3d();
+        let seed = Seed {
+            pattern: Pattern::GaussianSphere {
+                center: (0.5, 0.5, 0.5),
+                radius: 0.2,
+                amplitude: 1.0,
+                channel: 0,
+            },
+        };
 
         // Create CPU propagator
-        let mut cpu_propagator = CpuPropagator::new(config.clone());
+        let mut cpu_propagator = CpuPropagator3D::new(config.clone());
         let mut cpu_state = SimulationState::from_seed(&seed, &config);
 
         // Create GPU propagator
-        let gpu_propagator = pollster::block_on(GpuPropagator::new(config.clone()));
+        let gpu_propagator = pollster::block_on(GpuPropagator3D::new(config.clone()));
         let mut gpu_propagator = match gpu_propagator {
             Ok(p) => p,
             Err(GpuError::NoAdapter) => {
-                eprintln!("Skipping GPU test: no adapter available");
+                eprintln!("Skipping 3D GPU test: no adapter available");
                 return;
             }
-            Err(e) => panic!("Failed to create GPU propagator: {:?}", e),
+            Err(e) => panic!("Failed to create 3D GPU propagator: {:?}", e),
         };
         let mut gpu_state = SimulationState::from_seed(&seed, &config);
 
         // Run both for several steps and compare
-        for step in 0..5 {
+        for step in 0..3 {
             cpu_propagator.step(&mut cpu_state);
             gpu_propagator.step(&mut gpu_state);
 
@@ -1295,13 +1380,6 @@ mod tests {
             for c in 0..config.channels {
                 let cpu_channel = &cpu_state.channels[c];
                 let gpu_channel = &gpu_state.channels[c];
-
-                // Compute max absolute difference
-                let max_diff: f32 = cpu_channel
-                    .iter()
-                    .zip(gpu_channel.iter())
-                    .map(|(a, b)| (a - b).abs())
-                    .fold(0.0f32, f32::max);
 
                 // Compute relative error (using L2 norm)
                 let cpu_norm: f32 = cpu_channel.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -1317,71 +1395,16 @@ mod tests {
                     diff_norm
                 };
 
-                // Allow some tolerance for GPU/CPU floating point differences
-                // Direct convolution vs FFT will have small numerical differences
+                // Allow tolerance for GPU/CPU floating point differences
+                // Direct convolution vs FFT will have numerical differences
                 assert!(
-                    relative_error < 0.1,
-                    "Step {}, channel {}: GPU/CPU mismatch - relative error {:.4}, max diff {:.6}",
+                    relative_error < 0.15,
+                    "Step {}, channel {}: 3D GPU/CPU mismatch - relative error {:.4}",
                     step,
                     c,
-                    relative_error,
-                    max_diff
+                    relative_error
                 );
             }
-        }
-    }
-
-    /// Test equivalence with radius=1.0 (where bug was hidden).
-    #[test]
-    fn test_gpu_cpu_equivalence_full_radius() {
-        let config = test_config(); // radius = 1.0
-        let seed = Seed::default();
-
-        let mut cpu_propagator = CpuPropagator::new(config.clone());
-        let mut cpu_state = SimulationState::from_seed(&seed, &config);
-
-        let gpu_propagator = pollster::block_on(GpuPropagator::new(config.clone()));
-        let mut gpu_propagator = match gpu_propagator {
-            Ok(p) => p,
-            Err(GpuError::NoAdapter) => {
-                eprintln!("Skipping GPU test: no adapter available");
-                return;
-            }
-            Err(e) => panic!("Failed to create GPU propagator: {:?}", e),
-        };
-        let mut gpu_state = SimulationState::from_seed(&seed, &config);
-
-        // Run both for several steps
-        for _ in 0..5 {
-            cpu_propagator.step(&mut cpu_state);
-            gpu_propagator.step(&mut gpu_state);
-        }
-
-        // Compare final states
-        for c in 0..config.channels {
-            let cpu_norm: f32 = cpu_state.channels[c]
-                .iter()
-                .map(|x| x * x)
-                .sum::<f32>()
-                .sqrt();
-            let diff_norm: f32 = cpu_state.channels[c]
-                .iter()
-                .zip(gpu_state.channels[c].iter())
-                .map(|(a, b)| (a - b) * (a - b))
-                .sum::<f32>()
-                .sqrt();
-            let relative_error = if cpu_norm > 1e-10 {
-                diff_norm / cpu_norm
-            } else {
-                diff_norm
-            };
-
-            assert!(
-                relative_error < 0.1,
-                "Channel {}: GPU/CPU mismatch after 5 steps - relative error {:.4}",
-                c,
-                relative_error
-            );
         }
     }
 }

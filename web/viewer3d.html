@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Flow Lenia 3D Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #111;
+      color: #fff;
+      font-family: system-ui, sans-serif;
+      overflow: hidden;
+    }
+    #container { width: 100vw; height: 100vh; }
+    #controls {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.85);
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 100;
+      max-width: 280px;
+    }
+    #controls h3 {
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: #88f;
+      border-bottom: 1px solid #333;
+      padding-bottom: 5px;
+    }
+    .input-group {
+      margin-bottom: 12px;
+    }
+    #controls input[type="file"] {
+      margin-bottom: 5px;
+      font-size: 11px;
+      width: 100%;
+    }
+    #controls label { display: block; margin: 6px 0 3px; font-size: 11px; color: #aaa; }
+    #controls input[type="range"] { width: 100%; }
+    #info {
+      position: fixed;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.85);
+      padding: 10px 15px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+    button {
+      background: #333;
+      color: #fff;
+      border: 1px solid #555;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 4px;
+      font-size: 12px;
+    }
+    button:hover { background: #444; }
+    button.active { background: #0066cc; border-color: #0088ff; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-row { display: flex; gap: 4px; margin-bottom: 10px; }
+    .status {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+    .status.loading { background: #553300; color: #ffcc00; }
+    .status.ready { background: #003300; color: #00ff00; }
+    .status.error { background: #330000; color: #ff4444; }
+    .mode-tabs {
+      display: flex;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #333;
+    }
+    .mode-tab {
+      flex: 1;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #888;
+      padding: 8px 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .mode-tab:hover { color: #aaa; }
+    .mode-tab.active {
+      color: #88f;
+      border-bottom-color: #88f;
+    }
+    .mode-content { display: none; }
+    .mode-content.active { display: block; }
+    select {
+      width: 100%;
+      background: #222;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+
+  <div id="controls">
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="file">Playback</button>
+      <button class="mode-tab" data-mode="live">Live Sim</button>
+    </div>
+
+    <!-- File Playback Mode -->
+    <div id="file-mode" class="mode-content active">
+      <h3>FLWA Playback</h3>
+      <div class="input-group">
+        <input type="file" id="flwaInput" accept=".flwa">
+      </div>
+      <div class="btn-row">
+        <button id="playBtn" disabled>Play</button>
+        <button id="resetBtn" disabled>Reset</button>
+      </div>
+      <label>Frame: <span id="frameNum">0</span></label>
+      <input type="range" id="frameSlider" min="0" max="100" value="0" disabled>
+    </div>
+
+    <!-- Live Simulation Mode -->
+    <div id="live-mode" class="mode-content">
+      <h3>Live Simulation</h3>
+      <div class="input-group">
+        <label>Preset:</label>
+        <select id="presetSelect">
+          <option value="">-- Select Preset --</option>
+          <option value="sphere3d">Sphere 3D</option>
+          <option value="torus3d">Torus 3D</option>
+        </select>
+      </div>
+      <div class="input-group" style="border-top: 1px solid #333; padding-top: 10px; margin-top: 10px;">
+        <label style="color: #666; font-size: 10px;">Or load custom files:</label>
+      </div>
+      <div class="input-group">
+        <label>Config JSON:</label>
+        <input type="file" id="configInput" accept=".json">
+      </div>
+      <div class="input-group">
+        <label>Seed JSON:</label>
+        <input type="file" id="seedInput" accept=".json">
+      </div>
+      <div class="input-group">
+        <label>Backend:</label>
+        <select id="backendSelect">
+          <option value="cpu">CPU</option>
+          <option value="gpu">GPU (WebGPU)</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button id="initBtn" disabled>Initialize</button>
+        <button id="simPlayBtn" disabled>Play</button>
+        <button id="stepBtn" disabled>Step</button>
+      </div>
+      <div class="input-group">
+        <label>Steps per frame: <span id="stepsVal">1</span></label>
+        <input type="range" id="stepsSlider" min="1" max="20" value="1">
+      </div>
+      <div id="simStatus" class="status" style="display:none;"></div>
+    </div>
+
+    <!-- Common Visualization Controls -->
+    <h3 style="margin-top: 12px;">Visualization</h3>
+    <label>Opacity: <span id="opacityVal">0.5</span></label>
+    <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.5">
+    <label>Threshold: <span id="threshVal">0.05</span></label>
+    <input type="range" id="threshSlider" min="0" max="0.5" step="0.01" value="0.05">
+  </div>
+
+  <div id="info">Drop a .flwa file or load JSON configs for live simulation</div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/examples/jsm/controls/OrbitControls.js": "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+    // ========================================
+    // FLWA Parser (for playback mode)
+    // ========================================
+    class FLWAParser {
+      static async parse(buffer) {
+        const view = new DataView(buffer);
+        let offset = 0;
+
+        const magic = String.fromCharCode(...new Uint8Array(buffer, 0, 4));
+        if (magic !== 'FLWA') throw new Error('Invalid FLWA file');
+        offset += 4;
+
+        const version = view.getUint16(offset, true); offset += 2;
+        const flags = view.getUint16(offset, true); offset += 2;
+
+        const width = view.getUint32(offset, true); offset += 4;
+        const height = view.getUint32(offset, true); offset += 4;
+        const depth = view.getUint32(offset, true); offset += 4;
+        const channels = view.getUint32(offset, true); offset += 4;
+
+        const frameCountLow = view.getUint32(offset, true); offset += 4;
+        const frameCountHigh = view.getUint32(offset, true); offset += 4;
+        const frameCount = frameCountLow;
+
+        const dt = view.getFloat32(offset, true); offset += 4;
+        offset += 16; // Reserved
+
+        const indexSize = frameCount * 16;
+        const indexStart = buffer.byteLength - indexSize;
+        const indices = [];
+        let idxOffset = indexStart;
+
+        for (let i = 0; i < frameCount; i++) {
+          const indexView = new DataView(buffer, idxOffset);
+          const frameOffset = Number(indexView.getBigUint64(0, true));
+          const frameSize = Number(indexView.getBigUint64(8, true));
+          indices.push({ offset: frameOffset, size: frameSize });
+          idxOffset += 16;
+        }
+
+        const gridSize = width * height * depth;
+        const frames = [];
+
+        for (let i = 0; i < frameCount; i++) {
+          const { offset: frameOffset } = indices[i];
+          const frameData = new Float32Array(buffer, frameOffset, gridSize * channels);
+          frames.push(new Float32Array(frameData.slice(0, gridSize)));
+        }
+
+        return { width, height, depth, channels, frameCount, dt, frames };
+      }
+    }
+
+    // ========================================
+    // Preset Configurations
+    // ========================================
+    const PRESETS = {
+      sphere3d: {
+        config: {
+          "width": 64,
+          "height": 64,
+          "depth": 64,
+          "channels": 1,
+          "dt": 0.2,
+          "kernel_radius": 10,
+          "kernels": [
+            {
+              "radius": 1.0,
+              "rings": [
+                {
+                  "amplitude": 1.0,
+                  "distance": 0.5,
+                  "width": 0.15
+                }
+              ],
+              "weight": 1.0,
+              "mu": 0.15,
+              "sigma": 0.015,
+              "source_channel": 0,
+              "target_channel": 0
+            }
+          ],
+          "flow": {
+            "beta_a": 1.0,
+            "n": 2.0,
+            "distribution_size": 1.0
+          }
+        },
+        seed: {
+          "pattern": {
+            "type": "GaussianSphere",
+            "center": [0.5, 0.5, 0.5],
+            "radius": 0.15,
+            "amplitude": 1.0,
+            "channel": 0
+          }
+        }
+      },
+      torus3d: {
+        config: {
+          "width": 64,
+          "height": 64,
+          "depth": 64,
+          "channels": 1,
+          "dt": 0.15,
+          "kernel_radius": 12,
+          "kernels": [
+            {
+              "radius": 1.0,
+              "rings": [
+                {
+                  "amplitude": 1.0,
+                  "distance": 0.5,
+                  "width": 0.12
+                }
+              ],
+              "weight": 1.0,
+              "mu": 0.14,
+              "sigma": 0.014,
+              "source_channel": 0,
+              "target_channel": 0
+            }
+          ],
+          "flow": {
+            "beta_a": 1.2,
+            "n": 2.0,
+            "distribution_size": 1.0
+          }
+        },
+        seed: {
+          "pattern": {
+            "type": "Torus3D",
+            "center": [0.5, 0.5, 0.5],
+            "major_radius": 0.25,
+            "minor_radius": 0.08,
+            "amplitude": 1.0,
+            "channel": 0
+          }
+        }
+      }
+    };
+
+    // ========================================
+    // WASM Module Loader
+    // ========================================
+    let wasmModule = null;
+
+    async function loadWasmModule() {
+      if (wasmModule) return wasmModule;
+
+      try {
+        // Try loading from pkg directory (relative to web/)
+        const wasmUrl = '../pkg/flow_lenia.js';
+        wasmModule = await import(wasmUrl);
+        await wasmModule.default();
+        return wasmModule;
+      } catch (e) {
+        console.error('Failed to load WASM module:', e);
+        throw new Error(`WASM load failed: ${e.message}`);
+      }
+    }
+
+    async function checkWebGPU() {
+      if (typeof navigator === 'undefined' || !('gpu' in navigator)) {
+        return false;
+      }
+      try {
+        const adapter = await navigator.gpu.requestAdapter();
+        return adapter !== null;
+      } catch {
+        return false;
+      }
+    }
+
+    // ========================================
+    // Viridis Colormap
+    // ========================================
+    const viridisColors = [
+      [0.267, 0.004, 0.329],
+      [0.282, 0.141, 0.458],
+      [0.253, 0.265, 0.529],
+      [0.206, 0.371, 0.553],
+      [0.163, 0.471, 0.558],
+      [0.128, 0.566, 0.550],
+      [0.134, 0.658, 0.518],
+      [0.266, 0.749, 0.440],
+      [0.477, 0.821, 0.318],
+      [0.741, 0.873, 0.150],
+      [0.993, 0.906, 0.144]
+    ];
+
+    function viridis(t) {
+      t = Math.max(0, Math.min(1, t));
+      const idx = t * (viridisColors.length - 1);
+      const low = Math.floor(idx);
+      const high = Math.min(low + 1, viridisColors.length - 1);
+      const f = idx - low;
+      return [
+        viridisColors[low][0] + f * (viridisColors[high][0] - viridisColors[low][0]),
+        viridisColors[low][1] + f * (viridisColors[high][1] - viridisColors[low][1]),
+        viridisColors[low][2] + f * (viridisColors[high][2] - viridisColors[low][2])
+      ];
+    }
+
+    // ========================================
+    // App State
+    // ========================================
+    // Playback mode state
+    let animation = null;
+    let currentFrame = 0;
+    let playing = false;
+
+    // Live simulation state
+    let configJson = null;
+    let seedJson = null;
+    let propagator = null;
+    let simPlaying = false;
+    let simBackend = 'cpu';
+    let stepsPerFrame = 1;
+    let simDimensions = null;
+
+    // Visualization state
+    let opacity = 0.5;
+    let threshold = 0.05;
+    let currentMode = 'file';
+
+    // ========================================
+    // Three.js Setup
+    // ========================================
+    const container = document.getElementById('container');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(100, 100, 100);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x111111);
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    // ========================================
+    // Axis Helper and Bounding Box
+    // ========================================
+    function addAxisHelper(size) {
+      scene.children
+        .filter(c => c.userData.isHelper)
+        .forEach(c => scene.remove(c));
+
+      const halfSize = size / 2;
+
+      const boxGeo = new THREE.BoxGeometry(size, size, size);
+      const edges = new THREE.EdgesGeometry(boxGeo);
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.5 });
+      const box = new THREE.LineSegments(edges, lineMat);
+      box.userData.isHelper = true;
+      scene.add(box);
+
+      const axisLength = size * 0.6;
+      const axes = [
+        { dir: [1, 0, 0], color: 0xff4444 },
+        { dir: [0, 1, 0], color: 0x44ff44 },
+        { dir: [0, 0, 1], color: 0x4444ff },
+      ];
+
+      axes.forEach(({ dir, color }) => {
+        const points = [
+          new THREE.Vector3(-halfSize * dir[0], -halfSize * dir[1], -halfSize * dir[2]),
+          new THREE.Vector3(axisLength * dir[0], axisLength * dir[1], axisLength * dir[2])
+        ];
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        const mat = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+        const line = new THREE.Line(geo, mat);
+        line.userData.isHelper = true;
+        scene.add(line);
+      });
+    }
+
+    // ========================================
+    // Point Cloud Management
+    // ========================================
+    let pointCloud = null;
+    let geometry = null;
+    let material = null;
+
+    function createPointCloud(width, height, depth) {
+      if (pointCloud) {
+        scene.remove(pointCloud);
+        geometry.dispose();
+        material.dispose();
+      }
+
+      const positions = [];
+      const colors = [];
+      const sizes = [];
+
+      const cx = width / 2, cy = height / 2, cz = depth / 2;
+
+      for (let z = 0; z < depth; z++) {
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            positions.push(x - cx, y - cy, z - cz);
+            colors.push(0, 0, 0);
+            sizes.push(1);
+          }
+        }
+      }
+
+      geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+
+      material = new THREE.PointsMaterial({
+        size: 1.5,
+        vertexColors: true,
+        transparent: true,
+        opacity: opacity,
+        sizeAttenuation: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+
+      pointCloud = new THREE.Points(geometry, material);
+      scene.add(pointCloud);
+
+      const maxDim = Math.max(width, height, depth);
+      addAxisHelper(maxDim);
+
+      camera.position.set(maxDim * 1.5, maxDim * 1.5, maxDim * 1.5);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    }
+
+    function updatePointCloud(data, width, height, depth) {
+      if (!geometry) return;
+
+      const colors = geometry.attributes.color.array;
+      const sizes = geometry.attributes.size.array;
+
+      for (let i = 0; i < data.length; i++) {
+        const value = data[i];
+
+        if (value > threshold) {
+          const [r, g, b] = viridis(value);
+          colors[i * 3 + 0] = r;
+          colors[i * 3 + 1] = g;
+          colors[i * 3 + 2] = b;
+          sizes[i] = 1.0 + value * 2;
+        } else {
+          colors[i * 3 + 0] = 0;
+          colors[i * 3 + 1] = 0;
+          colors[i * 3 + 2] = 0;
+          sizes[i] = 0;
+        }
+      }
+
+      geometry.attributes.color.needsUpdate = true;
+      geometry.attributes.size.needsUpdate = true;
+      material.opacity = opacity;
+    }
+
+    // ========================================
+    // Info Display
+    // ========================================
+    function updateInfo() {
+      const infoEl = document.getElementById('info');
+
+      if (currentMode === 'file' && animation) {
+        const { width, height, depth, frameCount, dt } = animation;
+        const time = currentFrame * dt;
+        infoEl.textContent = `${width}x${height}x${depth} | Frame ${currentFrame}/${frameCount-1} | Time: ${time.toFixed(2)}s`;
+        document.getElementById('frameNum').textContent = currentFrame;
+        document.getElementById('frameSlider').value = currentFrame;
+      } else if (currentMode === 'live' && propagator) {
+        const { width, height, depth } = simDimensions;
+        const step = propagator.getStep();
+        const time = propagator.getTime();
+        const mass = propagator.totalMass().toFixed(3);
+        infoEl.textContent = `${width}x${height}x${depth} | Step ${step} | Time: ${time.toFixed(2)}s | Mass: ${mass} | ${simBackend.toUpperCase()}`;
+      } else {
+        infoEl.textContent = 'Drop a .flwa file or load JSON configs for live simulation';
+      }
+    }
+
+    // ========================================
+    // Mode Switching
+    // ========================================
+    document.querySelectorAll('.mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.mode-content').forEach(c => c.classList.remove('active'));
+
+        tab.classList.add('active');
+        currentMode = tab.dataset.mode;
+        document.getElementById(`${currentMode}-mode`).classList.add('active');
+
+        // Stop any playing animations
+        playing = false;
+        simPlaying = false;
+        document.getElementById('playBtn').textContent = 'Play';
+        document.getElementById('playBtn').classList.remove('active');
+        document.getElementById('simPlayBtn').textContent = 'Play';
+        document.getElementById('simPlayBtn').classList.remove('active');
+
+        updateInfo();
+      });
+    });
+
+    // ========================================
+    // File Playback Mode
+    // ========================================
+    async function loadFlwaFile(file) {
+      const buffer = await file.arrayBuffer();
+      animation = await FLWAParser.parse(buffer);
+
+      document.getElementById('frameSlider').max = animation.frameCount - 1;
+      document.getElementById('frameSlider').disabled = false;
+      document.getElementById('playBtn').disabled = false;
+      document.getElementById('resetBtn').disabled = false;
+
+      createPointCloud(animation.width, animation.height, animation.depth);
+      currentFrame = 0;
+      updatePointCloud(animation.frames[0], animation.width, animation.height, animation.depth);
+      updateInfo();
+    }
+
+    document.getElementById('flwaInput').addEventListener('change', (e) => {
+      if (e.target.files[0]) loadFlwaFile(e.target.files[0]);
+    });
+
+    document.getElementById('playBtn').addEventListener('click', () => {
+      playing = !playing;
+      document.getElementById('playBtn').textContent = playing ? 'Pause' : 'Play';
+      document.getElementById('playBtn').classList.toggle('active', playing);
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      currentFrame = 0;
+      if (animation) {
+        updatePointCloud(animation.frames[0], animation.width, animation.height, animation.depth);
+        updateInfo();
+      }
+    });
+
+    document.getElementById('frameSlider').addEventListener('input', (e) => {
+      currentFrame = parseInt(e.target.value);
+      if (animation) {
+        updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
+        updateInfo();
+      }
+    });
+
+    // ========================================
+    // Live Simulation Mode
+    // ========================================
+    function setSimStatus(message, type) {
+      const statusEl = document.getElementById('simStatus');
+      statusEl.textContent = message;
+      statusEl.className = `status ${type}`;
+      statusEl.style.display = 'block';
+    }
+
+    function checkInitReady() {
+      const ready = configJson !== null && seedJson !== null;
+      document.getElementById('initBtn').disabled = !ready;
+      return ready;
+    }
+
+    document.getElementById('presetSelect').addEventListener('change', (e) => {
+      const presetName = e.target.value;
+      if (presetName && PRESETS[presetName]) {
+        const preset = PRESETS[presetName];
+        configJson = JSON.parse(JSON.stringify(preset.config));
+        seedJson = JSON.parse(JSON.stringify(preset.seed));
+        // Clear file inputs to avoid confusion
+        document.getElementById('configInput').value = '';
+        document.getElementById('seedInput').value = '';
+        setSimStatus(`Preset "${presetName}" loaded`, 'ready');
+        checkInitReady();
+      } else if (!presetName) {
+        // Clear state when blank option is selected
+        configJson = null;
+        seedJson = null;
+        document.getElementById('simStatus').style.display = 'none';
+        checkInitReady();
+      }
+    });
+
+    document.getElementById('configInput').addEventListener('change', async (e) => {
+      if (e.target.files[0]) {
+        try {
+          const text = await e.target.files[0].text();
+          configJson = JSON.parse(text);
+          // Clear preset selection when custom file is loaded
+          document.getElementById('presetSelect').value = '';
+          setSimStatus('Config loaded', 'ready');
+          checkInitReady();
+        } catch (err) {
+          setSimStatus(`Config error: ${err.message}`, 'error');
+          configJson = null;
+        }
+      }
+    });
+
+    document.getElementById('seedInput').addEventListener('change', async (e) => {
+      if (e.target.files[0]) {
+        try {
+          const text = await e.target.files[0].text();
+          seedJson = JSON.parse(text);
+          // Clear preset selection when custom file is loaded
+          document.getElementById('presetSelect').value = '';
+          setSimStatus('Seed loaded', 'ready');
+          checkInitReady();
+        } catch (err) {
+          setSimStatus(`Seed error: ${err.message}`, 'error');
+          seedJson = null;
+        }
+      }
+    });
+
+    document.getElementById('backendSelect').addEventListener('change', (e) => {
+      simBackend = e.target.value;
+    });
+
+    document.getElementById('initBtn').addEventListener('click', async () => {
+      if (!configJson || !seedJson) return;
+
+      setSimStatus('Initializing...', 'loading');
+      document.getElementById('initBtn').disabled = true;
+
+      try {
+        const wasm = await loadWasmModule();
+
+        const configStr = JSON.stringify(configJson);
+        const seedStr = JSON.stringify(seedJson);
+
+        // Check if config is 3D
+        if (!configJson.depth || configJson.depth <= 1) {
+          throw new Error('Configuration must be 3D (depth > 1)');
+        }
+
+        simDimensions = {
+          width: configJson.width,
+          height: configJson.height,
+          depth: configJson.depth
+        };
+
+        // Create 3D propagator
+        if (simBackend === 'gpu') {
+          const gpuAvailable = await checkWebGPU();
+          if (!gpuAvailable) {
+            setSimStatus('WebGPU not available, falling back to CPU', 'loading');
+            simBackend = 'cpu';
+            document.getElementById('backendSelect').value = 'cpu';
+          }
+        }
+
+        if (simBackend === 'gpu') {
+          propagator = await new wasm.WasmGpuPropagator3D(configStr, seedStr);
+        } else {
+          propagator = new wasm.WasmPropagator3D(configStr, seedStr);
+        }
+
+        // Create point cloud visualization
+        createPointCloud(simDimensions.width, simDimensions.height, simDimensions.depth);
+
+        // Get initial state
+        const data = propagator.getChannelData(0);
+        updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
+
+        document.getElementById('simPlayBtn').disabled = false;
+        document.getElementById('stepBtn').disabled = false;
+        document.getElementById('initBtn').disabled = false;
+
+        setSimStatus(`Ready (${simBackend.toUpperCase()})`, 'ready');
+        updateInfo();
+
+      } catch (err) {
+        console.error('Initialization error:', err);
+        setSimStatus(`Error: ${err.message}`, 'error');
+        document.getElementById('initBtn').disabled = false;
+        propagator = null;
+      }
+    });
+
+    document.getElementById('simPlayBtn').addEventListener('click', () => {
+      if (!propagator) return;
+      simPlaying = !simPlaying;
+      document.getElementById('simPlayBtn').textContent = simPlaying ? 'Pause' : 'Play';
+      document.getElementById('simPlayBtn').classList.toggle('active', simPlaying);
+    });
+
+    document.getElementById('stepBtn').addEventListener('click', async () => {
+      if (!propagator) return;
+
+      if (simBackend === 'gpu') {
+        await propagator.step();
+      } else {
+        propagator.step();
+      }
+
+      const data = propagator.getChannelData(0);
+      updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
+      updateInfo();
+    });
+
+    document.getElementById('stepsSlider').addEventListener('input', (e) => {
+      stepsPerFrame = parseInt(e.target.value);
+      document.getElementById('stepsVal').textContent = stepsPerFrame;
+    });
+
+    // ========================================
+    // Visualization Controls
+    // ========================================
+    document.getElementById('opacitySlider').addEventListener('input', (e) => {
+      opacity = parseFloat(e.target.value);
+      document.getElementById('opacityVal').textContent = opacity.toFixed(2);
+
+      if (currentMode === 'file' && animation) {
+        updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
+      } else if (currentMode === 'live' && propagator) {
+        const data = propagator.getChannelData(0);
+        updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
+      }
+    });
+
+    document.getElementById('threshSlider').addEventListener('input', (e) => {
+      threshold = parseFloat(e.target.value);
+      document.getElementById('threshVal').textContent = threshold.toFixed(2);
+
+      if (currentMode === 'file' && animation) {
+        updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
+      } else if (currentMode === 'live' && propagator) {
+        const data = propagator.getChannelData(0);
+        updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
+      }
+    });
+
+    // ========================================
+    // Drag and Drop
+    // ========================================
+    document.body.addEventListener('dragover', (e) => e.preventDefault());
+    document.body.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        if (file.name.endsWith('.flwa')) {
+          // Switch to file mode
+          document.querySelector('[data-mode="file"]').click();
+          loadFlwaFile(file);
+        } else if (file.name.endsWith('.json')) {
+          // Try to determine if it's config or seed
+          document.querySelector('[data-mode="live"]').click();
+          if (file.name.includes('seed')) {
+            document.getElementById('seedInput').files = e.dataTransfer.files;
+            document.getElementById('seedInput').dispatchEvent(new Event('change'));
+          } else {
+            document.getElementById('configInput').files = e.dataTransfer.files;
+            document.getElementById('configInput').dispatchEvent(new Event('change'));
+          }
+        }
+      }
+    });
+
+    // ========================================
+    // Animation Loop
+    // ========================================
+    let lastTime = 0;
+    const frameInterval = 100; // ms between frames for playback
+
+    async function animate(time) {
+      requestAnimationFrame(animate);
+
+      // File playback mode
+      if (currentMode === 'file' && playing && animation && time - lastTime > frameInterval) {
+        currentFrame = (currentFrame + 1) % animation.frameCount;
+        updatePointCloud(animation.frames[currentFrame], animation.width, animation.height, animation.depth);
+        updateInfo();
+        lastTime = time;
+      }
+
+      // Live simulation mode
+      if (currentMode === 'live' && simPlaying && propagator && time - lastTime > 50) {
+        try {
+          if (simBackend === 'gpu') {
+            await propagator.run(BigInt(stepsPerFrame));
+          } else {
+            propagator.run(BigInt(stepsPerFrame));
+          }
+
+          const data = propagator.getChannelData(0);
+          updatePointCloud(data, simDimensions.width, simDimensions.height, simDimensions.depth);
+          updateInfo();
+        } catch (err) {
+          console.error('Simulation error:', err);
+          simPlaying = false;
+          document.getElementById('simPlayBtn').textContent = 'Play';
+          document.getElementById('simPlayBtn').classList.remove('active');
+          setSimStatus(`Error: ${err.message}`, 'error');
+        }
+        lastTime = time;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    // ========================================
+    // Window Resize
+    // ========================================
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ========================================
+    // Start
+    // ========================================
+    animate(0);
+  </script>
+</body>
+</html>

@@ -3,8 +3,10 @@
 //! Provides GPU-accelerated simulation using WebGPU (wgpu).
 
 mod propagator;
+mod propagator3d;
 
 pub use propagator::GpuPropagator;
+pub use propagator3d::GpuPropagator3D;
 
 /// Error type for GPU operations.
 #[derive(Debug, thiserror::Error)]
